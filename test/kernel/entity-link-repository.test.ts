@@ -8,10 +8,12 @@ import {
 import {
   FakeClock,
   countLinkRows,
+  ensureWorkspace,
   makeContext,
   makeLinkRepository,
   makeRepository,
   resetTables,
+  seedEntity,
   sequentialIds,
 } from "./support";
 
@@ -319,6 +321,45 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
       expect(ids.size).toBe(1);
       // Exactly one attempt actually created the row.
       expect(results.filter((r) => r.created)).toHaveLength(1);
+    });
+
+    it("reconciles concurrent creates of an unlinked relationship (one restored, rest already_exists, one id)", async () => {
+      const [source, target] = await twoEntitiesA();
+      const first = await linksA.create({
+        sourceEntityId: source,
+        targetEntityId: target,
+        type: "task.relates_to",
+      });
+      await linksA.unlink(first.link.id);
+
+      const attempts = Array.from({ length: 6 }, () =>
+        linksA.create({
+          sourceEntityId: source,
+          targetEntityId: target,
+          type: "task.relates_to",
+        }),
+      );
+      const results = await Promise.all(attempts);
+
+      // No duplicate row, one stable id, the link ends up active.
+      expect(await countLinkRows()).toBe(1);
+      expect(new Set(results.map((r) => r.link.id))).toEqual(
+        new Set([first.link.id]),
+      );
+      // Nobody reports `created` (the row pre-existed); outcomes are the defined
+      // idempotent ones, with at most one `restored`.
+      expect(results.every((r) => !r.created)).toBe(true);
+      expect(
+        results.filter((r) => r.outcome === "restored").length,
+      ).toBeLessThanOrEqual(1);
+      expect(
+        results.every(
+          (r) => r.outcome === "restored" || r.outcome === "already_exists",
+        ),
+      ).toBe(true);
+      expect(
+        (await linksA.getById(first.link.id))?.deletedAt ?? null,
+      ).toBeNull();
     });
   });
 
@@ -676,6 +717,79 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
       });
       expect(second.items).toHaveLength(1);
       expect(second.items[0]!.link.id).not.toBe(first.items[0]!.link.id);
+    });
+  });
+
+  describe("generated id validation", () => {
+    it("rejects an empty generated id before writing", async () => {
+      const [source, target] = await twoEntitiesA();
+      const badRepo = makeLinkRepository(CTX_A, {
+        clock: clock.now,
+        idGenerator: () => "",
+      });
+      await expect(
+        badRepo.create({
+          sourceEntityId: source,
+          targetEntityId: target,
+          type: "task.relates_to",
+        }),
+      ).rejects.toBeInstanceOf(EntityLinkValidationError);
+      expect(await countLinkRows()).toBe(0);
+    });
+
+    it("rejects an over-long generated id before writing", async () => {
+      const [source, target] = await twoEntitiesA();
+      const badRepo = makeLinkRepository(CTX_A, {
+        clock: clock.now,
+        idGenerator: () => "x".repeat(129),
+      });
+      await expect(
+        badRepo.create({
+          sourceEntityId: source,
+          targetEntityId: target,
+          type: "task.relates_to",
+        }),
+      ).rejects.toBeInstanceOf(EntityLinkValidationError);
+      expect(await countLinkRows()).toBe(0);
+    });
+  });
+
+  describe("unicode workspace/anchor scope pagination", () => {
+    it("paginates correctly when the workspace and entity ids are non-Latin-1", async () => {
+      // Ids are validated only as non-empty bounded strings, so a Unicode scope
+      // is legal — its pagination cursor must survive base64 encoding.
+      const WS_U = "个人";
+      await ensureWorkspace(WS_U);
+      const ctxU = makeContext(WS_U);
+      const linksU = makeLinkRepository(ctxU, {
+        clock: clock.now,
+        idGenerator: sequentialIds("lu"),
+      });
+
+      const anchor = await seedEntity(WS_U, "锚点", { type: "project" });
+      const targets: string[] = [];
+      for (let i = 0; i < 5; i++) {
+        clock.advance(1_000);
+        const t = await seedEntity(WS_U, `目标${i}`, { type: "task" });
+        targets.push(t);
+        await linksU.create({
+          sourceEntityId: anchor,
+          targetEntityId: t,
+          type: "task.relates_to",
+        });
+      }
+
+      // Walk all pages via the Unicode-scoped cursor (this would throw from btoa
+      // if the cursor were not UTF-8 safe).
+      const seen: string[] = [];
+      let cursor: string | undefined;
+      do {
+        const page = await linksU.listForEntity(anchor, { limit: 2, cursor });
+        seen.push(...page.items.map((v) => v.counterpart.id));
+        cursor = page.nextCursor ?? undefined;
+      } while (cursor);
+
+      expect(seen).toEqual(targets);
     });
   });
 

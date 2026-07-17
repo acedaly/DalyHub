@@ -198,4 +198,45 @@ describe("EntityLink lifecycle & endpoint-deletion behaviour", () => {
       expect(await countLinkRows()).toBe(1);
     });
   });
+
+  describe("idempotency under concurrency (real D1 races)", () => {
+    it("concurrent unlink: one unlinked, the rest already_unlinked, no storage error", async () => {
+      const { link } = await linkedPair();
+
+      const results = await Promise.all(
+        Array.from({ length: 8 }, () => linksA.unlink(link.id)),
+      );
+
+      const outcomes = results.map((r) => r.outcome);
+      expect(outcomes.filter((o) => o === "unlinked")).toHaveLength(1);
+      expect(outcomes.filter((o) => o === "already_unlinked")).toHaveLength(7);
+      // Exactly one real change; the row is unlinked; the id is stable.
+      expect(results.filter((r) => r.changed)).toHaveLength(1);
+      expect(new Set(results.map((r) => r.link.id))).toEqual(
+        new Set([link.id]),
+      );
+      expect(await countLinkRows()).toBe(1);
+      const stored = await linksA.getById(link.id, { includeUnlinked: true });
+      expect(stored?.deletedAt).not.toBeNull();
+    });
+
+    it("concurrent restore: one restored, the rest already_active, no storage error", async () => {
+      const { link } = await linkedPair();
+      await linksA.unlink(link.id);
+
+      const results = await Promise.all(
+        Array.from({ length: 8 }, () => linksA.restore(link.id)),
+      );
+
+      const outcomes = results.map((r) => r.outcome);
+      expect(outcomes.filter((o) => o === "restored")).toHaveLength(1);
+      expect(outcomes.filter((o) => o === "already_active")).toHaveLength(7);
+      expect(results.filter((r) => r.changed)).toHaveLength(1);
+      expect(new Set(results.map((r) => r.link.id))).toEqual(
+        new Set([link.id]),
+      );
+      expect(await countLinkRows()).toBe(1);
+      expect((await linksA.getById(link.id))?.deletedAt).toBeNull();
+    });
+  });
 });

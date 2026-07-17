@@ -30,6 +30,22 @@ describe("EntityLink cursor (pure)", () => {
     expect(decodeEntityLinkCursor(cursor).scope.type).toBeNull();
   });
 
+  it("round-trips non-Latin-1 (Unicode) workspace and anchor ids", () => {
+    // Workspace/entity ids are validated only as non-empty bounded strings, so a
+    // Unicode id can legitimately reach the cursor. base64url must encode via
+    // UTF-8 so `btoa` does not throw and the value round-trips exactly.
+    const scope: EntityLinkCursorScope = {
+      ...SCOPE,
+      workspaceId: "个人",
+      anchorEntityId: "café–entity–😀",
+    };
+    const cursor = encodeEntityLinkCursor(scope, POSITION);
+    const decoded = decodeEntityLinkCursor(cursor);
+    expect(decoded.scope.workspaceId).toBe("个人");
+    expect(decoded.scope.anchorEntityId).toBe("café–entity–😀");
+    expect(decodeEntityLinkCursorForScope(cursor, scope)).toEqual(POSITION);
+  });
+
   it("returns the position when the expected scope matches exactly", () => {
     const cursor = encodeEntityLinkCursor(SCOPE, POSITION);
     expect(decodeEntityLinkCursorForScope(cursor, SCOPE)).toEqual(POSITION);

@@ -59,19 +59,36 @@ export type EntityLinkCursorScope = {
   readonly type: string | null;
 };
 
-/** Encode a base64url string with no padding (URL/JSON-safe, ASCII payload). */
-function toBase64Url(ascii: string): string {
-  return btoa(ascii).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+/**
+ * Encode a string as base64url with no padding. The input is first serialised to
+ * UTF-8 bytes so any Unicode content survives: workspace and entity ids are
+ * validated only as non-empty bounded strings, so a non-Latin id (e.g. `个人`)
+ * can legitimately reach the cursor — `btoa` alone would throw on it. Feeding
+ * `btoa` a Latin-1 string of raw UTF-8 bytes keeps it in range.
+ */
+function toBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
 }
 
-/** Decode a base64url string produced by {@link toBase64Url}. */
+/** Decode a base64url string produced by {@link toBase64Url}, reversing the
+ * UTF-8 byte encoding so Unicode round-trips exactly. */
 function fromBase64Url(value: string): string {
   const normalised = value.replace(/-/g, "+").replace(/_/g, "/");
   const padded = normalised.padEnd(
     normalised.length + ((4 - (normalised.length % 4)) % 4),
     "=",
   );
-  return atob(padded);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
 /** Encode a scope + ordering position into an opaque, versioned cursor string. */

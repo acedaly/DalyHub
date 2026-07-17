@@ -140,9 +140,12 @@ export class D1EntityLinkRepository implements EntityLinkRepository {
       return this.#reconcileExisting(existing);
     }
 
-    // 6. Otherwise insert a new relationship row.
+    // 6. Otherwise insert a new relationship row. Validate the GENERATED id at
+    // the boundary too: the id generator is injectable and could return an
+    // invalid value, so it is checked before any write — an invalid id throws
+    // `EntityLinkValidationError` and nothing is inserted.
     const now = toStorageTimestamp(this.#clock());
-    const id = this.#newId();
+    const id = validateEntityLinkId(this.#newId());
     try {
       const row = await this.#db
         .prepare(
@@ -263,21 +266,11 @@ export class D1EntityLinkRepository implements EntityLinkRepository {
   async unlink(id: string): Promise<EntityLinkLifecycleResult> {
     const linkId = validateEntityLinkId(id);
 
-    const existing = await this.#findById(linkId);
-    if (!existing) {
-      throw new EntityLinkNotFoundError();
-    }
-    if (existing.deleted_at !== null) {
-      // Idempotent: already unlinked, no timestamp churn. Endpoints untouched.
-      return {
-        link: rowToEntityLink(existing),
-        outcome: "already_unlinked",
-        changed: false,
-      };
-    }
-
+    // Attempt the transition atomically: only an ACTIVE row in this workspace is
+    // affected. Doing the conditional UPDATE first (rather than read-then-write)
+    // makes concurrent/retried unlinks safe — SQLite serialises the writes.
     const now = toStorageTimestamp(this.#clock());
-    const row = await this.#firstOrThrow(
+    const updated = await this.#first(
       this.#db
         .prepare(
           `UPDATE entity_links
@@ -287,8 +280,26 @@ export class D1EntityLinkRepository implements EntityLinkRepository {
         )
         .bind(now, now, linkId, this.#workspaceId),
     );
+    if (updated) {
+      return {
+        link: rowToEntityLink(updated),
+        outcome: "unlinked",
+        changed: true,
+      };
+    }
 
-    return { link: rowToEntityLink(row), outcome: "unlinked", changed: true };
+    // No active row matched. Re-read to distinguish "unknown id / other
+    // workspace" (not found) from "already unlinked" — the latter includes the
+    // loser of a concurrent unlink race, kept idempotent rather than erroring.
+    const existing = await this.#findById(linkId);
+    if (!existing) {
+      throw new EntityLinkNotFoundError();
+    }
+    return {
+      link: rowToEntityLink(existing),
+      outcome: "already_unlinked",
+      changed: false,
+    };
   }
 
   async restore(id: string): Promise<EntityLinkLifecycleResult> {
@@ -315,18 +326,25 @@ export class D1EntityLinkRepository implements EntityLinkRepository {
     );
 
     const now = toStorageTimestamp(this.#clock());
-    const row = await this.#firstOrThrow(
-      this.#db
-        .prepare(
-          `UPDATE entity_links
-             SET deleted_at = NULL, updated_at = ?
-           WHERE id = ? AND workspace_id = ? AND deleted_at IS NOT NULL
-           RETURNING ${LINK_COLUMNS}`,
-        )
-        .bind(now, linkId, this.#workspaceId),
-    );
+    const row = await this.#clearDeletedAt(linkId, now);
+    if (row) {
+      return { link: rowToEntityLink(row), outcome: "restored", changed: true };
+    }
 
-    return { link: rowToEntityLink(row), outcome: "restored", changed: true };
+    // The conditional UPDATE matched no unlinked row: a concurrent restore (or
+    // create-restore) won the race and the link is already active. Report the
+    // idempotent outcome rather than erroring.
+    const current = await this.#findById(linkId);
+    if (current && current.deleted_at === null) {
+      return {
+        link: rowToEntityLink(current),
+        outcome: "already_active",
+        changed: false,
+      };
+    }
+    // The row vanished (there is no hard-delete, so this is not expected) — fail
+    // safely as not-found rather than surfacing a storage error.
+    throw new EntityLinkNotFoundError();
   }
 
   /**
@@ -345,7 +363,40 @@ export class D1EntityLinkRepository implements EntityLinkRepository {
       };
     }
     const now = toStorageTimestamp(this.#clock());
-    const row = await this.#firstOrThrow(
+    const row = await this.#clearDeletedAt(existing.id, now);
+    if (row) {
+      return {
+        link: rowToEntityLink(row),
+        outcome: "restored",
+        created: false,
+      };
+    }
+
+    // A concurrent create/restore already re-activated the row. Re-read and
+    // return the idempotent `already_exists` rather than erroring.
+    const current = await this.#findById(existing.id);
+    if (current && current.deleted_at === null) {
+      return {
+        link: rowToEntityLink(current),
+        outcome: "already_exists",
+        created: false,
+      };
+    }
+    // Unreconcilable: the row is gone or still unlinked with no rows returned —
+    // there is no safe result to synthesise.
+    throw new EntityLinkConflictError();
+  }
+
+  /**
+   * Clear `deleted_at` on an unlinked link in the bound workspace, returning the
+   * refreshed row, or null when no unlinked row matched (already active / gone).
+   * The `deleted_at IS NOT NULL` guard makes concurrent restores race-safe.
+   */
+  async #clearDeletedAt(
+    id: string,
+    now: string,
+  ): Promise<EntityLinkRow | null> {
+    return this.#first(
       this.#db
         .prepare(
           `UPDATE entity_links
@@ -353,9 +404,8 @@ export class D1EntityLinkRepository implements EntityLinkRepository {
            WHERE id = ? AND workspace_id = ? AND deleted_at IS NOT NULL
            RETURNING ${LINK_COLUMNS}`,
         )
-        .bind(now, existing.id, this.#workspaceId),
+        .bind(now, id, this.#workspaceId),
     );
-    return { link: rowToEntityLink(row), outcome: "restored", created: false };
   }
 
   /** Build the (possibly UNION ALL) listing query for the requested direction. */
@@ -522,15 +572,6 @@ export class D1EntityLinkRepository implements EntityLinkRepository {
     } catch (cause) {
       throw new EntityLinkStorageError(undefined, { cause });
     }
-  }
-
-  /** Like {@link #first} but throws when no row is returned (invariant guard). */
-  async #firstOrThrow(statement: D1PreparedStatement): Promise<EntityLinkRow> {
-    const row = await this.#first(statement);
-    if (!row) {
-      throw new EntityLinkStorageError();
-    }
-    return row;
   }
 
   /** Run a listing statement returning many view rows, mapping D1 failures. */
