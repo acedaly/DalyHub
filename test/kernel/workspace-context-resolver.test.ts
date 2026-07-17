@@ -52,9 +52,12 @@ describe("createConfiguredWorkspaceContextResolver", () => {
     );
   });
 
-  it("fails closed when configuration is structurally malformed", async () => {
+  it("fails closed when configuration is structurally malformed (over-long)", async () => {
+    // Workspace ids follow FND-02's rules (non-empty string ≤128 chars, no
+    // charset restriction), so the structurally-invalid string case is an
+    // over-long value.
     const resolver = createConfiguredWorkspaceContextResolver({
-      configuredWorkspaceId: "not a valid id!",
+      configuredWorkspaceId: "a".repeat(129),
       repository,
     });
     await expect(resolver.resolve()).rejects.toThrow(WorkspaceValidationError);

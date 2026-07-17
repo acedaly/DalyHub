@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   WorkspaceConflictError,
   WorkspaceStorageError,
+  WorkspaceValidationError,
   parseWorkspaceId,
   type WorkspaceId,
 } from "~/kernel/workspaces";
@@ -65,6 +66,37 @@ describe("D1WorkspaceRepository", () => {
     const stored = await repo.getById(id);
     expect(stored?.createdAt).toEqual(new Date("2026-07-17T00:00:00.000Z"));
     expect(await countWorkspaces()).toBe(1);
+  });
+
+  it("accepts a legacy FND-02 id shape (no charset restriction)", async () => {
+    const repo = makeWorkspaceRepository({ clock: clock.now });
+    const id = parseWorkspaceId("personal.v1");
+    const created = await repo.create({ id });
+    expect(created.id).toBe("personal.v1");
+    expect(await repo.exists(id)).toBe(true);
+  });
+
+  it("rejects a supplied id that is invalid (unsafe cast) without writing", async () => {
+    const repo = makeWorkspaceRepository({ clock: clock.now });
+    // An id that defeats the WorkspaceId brand with a cast. Empty and over-long
+    // are the invalid cases under the (FND-02-compatible) rules.
+    await expect(
+      repo.create({ id: "" as unknown as WorkspaceId }),
+    ).rejects.toThrow(WorkspaceValidationError);
+    await expect(
+      repo.create({ id: "a".repeat(200) as unknown as WorkspaceId }),
+    ).rejects.toThrow(WorkspaceValidationError);
+    // The bad ids were rejected before any write.
+    expect(await countWorkspaces()).toBe(0);
+  });
+
+  it("rejects an invalid injected id generator without writing", async () => {
+    const repo = makeWorkspaceRepository({
+      clock: clock.now,
+      idGenerator: () => "" as unknown as WorkspaceId,
+    });
+    await expect(repo.create()).rejects.toThrow(WorkspaceValidationError);
+    expect(await countWorkspaces()).toBe(0);
   });
 
   it("getById returns null for an unknown workspace", async () => {

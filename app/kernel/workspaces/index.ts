@@ -12,7 +12,6 @@
 
 export {
   WORKSPACE_ID_MAX_LENGTH,
-  WORKSPACE_ID_PATTERN,
   isWorkspaceId,
   parseWorkspaceId,
   newWorkspaceId,

@@ -13,6 +13,7 @@ import {
   WorkspaceConflictError,
   WorkspaceStorageError,
   newWorkspaceId,
+  parseWorkspaceId,
   type CreateWorkspaceInput,
   type WorkspaceId,
   type WorkspaceRecord,
@@ -46,7 +47,13 @@ export class D1WorkspaceRepository implements WorkspaceRepository {
   }
 
   async create(input: CreateWorkspaceInput = {}): Promise<WorkspaceRecord> {
-    const id = input.id ?? this.#newId();
+    // Re-validate the id at the storage boundary BEFORE any query or write. The
+    // `WorkspaceId` brand is a compile-time guarantee only — a caller can defeat
+    // it with a type assertion, and an injected id generator could return an
+    // invalid value — so a supplied or generated id is parsed here. An invalid
+    // id throws `WorkspaceValidationError` and nothing (no existence check, no
+    // insert) touches the database, honouring the repository contract.
+    const id = parseWorkspaceId(input.id ?? this.#newId());
 
     // Fail closed on a duplicate id rather than silently overwriting an existing
     // boundary. The PRIMARY KEY is the database backstop; this gives a typed,

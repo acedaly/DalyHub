@@ -36,6 +36,30 @@ describe("resolveWorkspaceScope (composition boundary)", () => {
     expect((await entities.getById(created.id))?.title).toBe("scoped");
   });
 
+  it("resolves and uses legacy FND-02 workspace id shapes end to end", async () => {
+    // Ids valid under FND-02 (any non-empty string ≤128 chars) must migrate,
+    // resolve through DEFAULT_WORKSPACE_ID, and drive the scoped repository.
+    const repo = makeWorkspaceRepository();
+    for (const legacy of [
+      "personal.v1",
+      "personal workspace",
+      "personal/work",
+    ]) {
+      await repo.create({ id: parseWorkspaceId(legacy) });
+
+      const { context, entities } = await resolveWorkspaceScope({
+        DB: env.DB,
+        DEFAULT_WORKSPACE_ID: legacy,
+      });
+      expect(context.workspaceId).toBe(legacy);
+
+      const created = await entities.create({ type: "task", title: legacy });
+      expect(created.workspaceId).toBe(legacy);
+      const listed = await entities.list();
+      expect(listed.items.map((e) => e.workspaceId)).toEqual([legacy]);
+    }
+  });
+
   it("fails closed when the configured workspace has not been provisioned", async () => {
     await expect(
       resolveWorkspaceScope({

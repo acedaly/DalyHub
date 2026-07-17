@@ -48,6 +48,18 @@ const SEED = [
     updated: "2026-07-17T00:00:04.000Z",
     deleted: null,
   },
+  {
+    // A legacy FND-02 workspace id shape (dotted). FND-02 accepted any non-empty
+    // string ≤128 chars; migration 0002 must back-fill it unchanged so it stays
+    // resolvable and usable (regression for the workspace-id compatibility fix).
+    id: "e5",
+    ws: "personal.v1",
+    type: "note",
+    title: "Legacy-scope note",
+    created: "2026-07-17T00:00:05.000Z",
+    updated: "2026-07-17T00:00:05.000Z",
+    deleted: null,
+  },
 ];
 
 interface EntityRow {
@@ -85,7 +97,12 @@ describe("migration 0001 → 0002 (existing-data preservation)", () => {
     const { results } = await DB.prepare(
       "SELECT id FROM workspaces ORDER BY id",
     ).all<{ id: string }>();
-    expect(results.map((r) => r.id)).toEqual(["ws_one", "ws_three", "ws_two"]);
+    expect(results.map((r) => r.id)).toEqual([
+      "personal.v1",
+      "ws_one",
+      "ws_three",
+      "ws_two",
+    ]);
   });
 
   it("derives backfilled workspace timestamps from its entities (min/max)", async () => {
