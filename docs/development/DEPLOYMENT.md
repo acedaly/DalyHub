@@ -1,19 +1,50 @@
 # DEPLOYMENT.md — Deploying DalyHub V2 to Cloudflare Workers
 
-> How the FND-01 scaffold deploys, what has been validated without credentials,
-> and exactly what is required to perform (and verify) a real deployment.
+> How DalyHub deploys, what has been validated without credentials, and exactly
+> what is required to perform (and re-verify) a real deployment.
 >
 > Platform rationale: [ADR-008](../decisions/ARCHITECTURE_DECISIONS.md#adr-008-initial-application-platform-and-toolchain).
 > Roadmap item: [FND-01](../roadmap/ROADMAP_V2.md#-fnd-01--repository--toolchain-scaffold).
 
 ---
 
+## Verified production deployment (2026-07-18)
+
+The first production deployment is **complete and verified** (FND-01 is
+`☑ Done`). The verified facts:
+
+| Item | Value |
+| --- | --- |
+| Live hostname | <https://hub.daly.id.au> |
+| Production Worker name | `dalyhub-v2-production` |
+| Platform | Cloudflare Workers |
+| Storage | production Cloudflare **D1** (the provisioned remote database) |
+| Migrations applied | `0001`–`0005` |
+| Workspace | a production workspace was provisioned |
+| Custom hostname protection | **Cloudflare Access** (owner-restricted) |
+| `*.workers.dev` origin | **disabled** (direct production URL returns 404) |
+| Preview URLs | **disabled** |
+| `/health` | returns the production health response (public) |
+| Authenticated owner shell | loads successfully through Access |
+
+The **Custom Domain** for `hub.daly.id.au` is **managed through the Cloudflare
+dashboard**. Wrangler must **not** add or remove a Worker route or Custom Domain
+route for it — the committed configuration deliberately declares none (see
+[origin hardening](#workersdev--preview-urls--custom-domain-origin-hardening)).
+
+Real production identifiers (account ID, D1 database ID, workspace ID, Access AUD
+/ team domain, owner email) and all secrets remain **uncommitted** — they are
+supplied only at deploy time.
+
 ## Target
 
-DalyHub V2 deploys as a single **Cloudflare Worker** (`name: "dalyhub-v2"` in
-[`wrangler.jsonc`](../../wrangler.jsonc)), serving the React Router app in SSR
-mode with static client assets. No storage bindings (D1/KV/R2) are configured
-yet — those are later roadmap decisions ([FND-02+](../roadmap/ROADMAP_V2.md#-fnd-02--data-kernel-entities--storage)).
+DalyHub V2 deploys as a single **Cloudflare Worker**. The committed
+[`wrangler.jsonc`](../../wrangler.jsonc) top-level config is the LOCAL/development
+environment (`name: "dalyhub-v2"`); the named `env.production` environment
+flattens at build time to the production Worker **`dalyhub-v2-production`**. It
+serves the React Router app in SSR mode with static client assets, backed by
+**Cloudflare D1** (the data kernel store, [FND-02+](../roadmap/ROADMAP_V2.md#-fnd-02--data-kernel-entities--storage)); local work uses Miniflare's
+local SQLite and production uses the provisioned remote D1 database.
 
 ## Two clearly distinct flows: local dry-run vs live production
 
@@ -92,12 +123,33 @@ pnpm run deploy:production
    uploaded. Run just this step any time with `pnpm run deploy:production:preflight`.
 2. **Builds** the Worker for production (`CLOUDFLARE_ENV=production`), which
    forces `ENVIRONMENT=production` (so development auth cannot activate and the
-   theme cookie is always `Secure`).
-3. **Injects** the real remote D1 id and workspace id into the generated deploy
-   config and refuses to upload if any placeholder survives.
-4. **Sets the Access secrets** (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`,
-   `OWNER_EMAIL`) on the production Worker via `wrangler secret`.
-5. **Deploys.**
+   theme cookie is always `Secure`) and produces the **flattened**
+   `build/server/wrangler.json`. The Cloudflare Vite plugin applies the named
+   production environment **exactly once** here, so the generated config already
+   carries the final Worker name `dalyhub-v2-production` and
+   `workers_dev`/`preview_urls` set to `false`.
+3. **Reads, validates and finalises** the generated config: it confirms the final
+   Worker name is `dalyhub-v2-production` (never `dalyhub-v2-production-production`)
+   and that the origin-hardening flags survived flattening, injects the real remote
+   D1 id and workspace id, and refuses to upload if any placeholder survives.
+4. **Deploys once, atomically.** It runs a single `wrangler deploy` that targets
+   the flattened top-level config with `--env=""` (never `--env production`, and
+   with `CLOUDFLARE_ENV` cleared) — so the environment is not applied a second time
+   — and uploads the Access secrets (`ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`,
+   `OWNER_EMAIL`) **atomically with the Worker code** via a single, securely-created
+   temporary `--secrets-file` (owner-only permissions, created outside the
+   repository, deleted in a `finally` on success or failure; values are never
+   printed). No standalone `wrangler secret put` runs, so no secrets-only Worker is
+   ever created before the real code.
+
+> **Why `--env=""` matters.** The first deployment attempt created a Worker named
+> `dalyhub-v2-production-production`: the generated config already had the final
+> name `dalyhub-v2-production`, but the deploy was still invoked with
+> `CLOUDFLARE_ENV=production`, so Wrangler applied the `production` environment a
+> **second** time and appended `-production` again. Deploying the flattened config
+> with `--env=""` (and `CLOUDFLARE_ENV` cleared) targets the already-final
+> top-level config, so the name can only ever be `dalyhub-v2-production`. This is
+> validated by the deploy guard and its tests (`test/unit/deploy/`).
 
 ### Production migrations
 
@@ -141,30 +193,53 @@ dashboard bindings — **never** committed to `wrangler.jsonc` with real values)
 LOCAL config and `env.production`, pinned to `cloudflare-access`); it **fails
 closed** — with no team domain/AUD/owner configured, the Worker rejects every
 protected request rather than exposing data. `ACCESS_TEAM_DOMAIN`, `ACCESS_AUD`
-and `OWNER_EMAIL` are supplied only via `wrangler secret` (set automatically by
-`deploy:production` from the `PRODUCTION_ACCESS_*` / `PRODUCTION_OWNER_EMAIL`
-environment variables) and are **not** declared as `vars` in `wrangler.jsonc`, so
-a committed empty `var` can never override (clobber) the deploy-time secret.
-Because `env.production` fixes `ENVIRONMENT=production`, the development
-authenticator can never activate in production regardless of any other input.
+and `OWNER_EMAIL` are supplied as Worker secrets **atomically with the deploy**
+(`deploy:production` writes them to a single temporary `--secrets-file` from the
+`PRODUCTION_ACCESS_*` / `PRODUCTION_OWNER_EMAIL` environment variables) and are
+**not** declared as `vars` in `wrangler.jsonc`, so a committed empty `var` can
+never override (clobber) the deploy-time secret. Because `env.production` fixes
+`ENVIRONMENT=production`, the development authenticator can never activate in
+production regardless of any other input.
 
-### workers.dev / custom-domain origin bypass (must-do before going live)
+### workers.dev / Preview URLs / custom-domain origin hardening
 
 Cloudflare Access protects the **configured Access hostname**. An unprotected
-alternate origin — most importantly the default `*.workers.dev` route — would let
-a client reach the Worker without an Access token and is a bypass to private
-data. Because DalyHub also validates the JWT inside the Worker, such a request
-still fails closed (503, no valid token) — but defence in depth requires closing
-the origin too. Before a live deployment:
+alternate origin — most importantly the default `*.workers.dev` route or a
+Cloudflare Preview URL — would let a client reach the Worker without an Access
+token and is a bypass to private data. Because DalyHub also validates the JWT
+inside the Worker, such a request still fails closed (503, no valid token) — but
+defence in depth requires closing the origin too.
+
+The named `env.production` config therefore commits `"workers_dev": false` and
+`"preview_urls": false`; the Cloudflare Vite build flattens both into
+`build/server/wrangler.json`, and `deploy:production` refuses to upload if either
+is not `false`. **This is verified in production (2026-07-18):** the direct
+`workers.dev` production URL is disabled and returns 404, and Preview URLs are
+disabled. The **Custom Domain** for `hub.daly.id.au` is **dashboard-managed** —
+the committed config declares **no** Worker route or Custom Domain route for it,
+and Wrangler must never add or remove one.
+
+The going-live checklist (all satisfied for the verified deployment):
 
 - protect the **custom hostname** with a Cloudflare Access policy restricted to
   the owner;
-- **disable** (or otherwise secure) the default `*.workers.dev` route so it is not
-  an unauthenticated entry point;
+- keep the default `*.workers.dev` route and Preview URLs **disabled** (committed
+  in `env.production`);
 - confirm the Worker validates JWTs (issuer/AUD/owner) — as implemented here;
 - apply D1 migrations before deployment;
 - smoke-test **both** the protected hostname (authenticated shell) and the direct
   origin (rejected), plus public `/health`.
+
+### Authenticating Wrangler: OAuth vs API token
+
+- **Manual owner deployments** may authenticate Wrangler interactively through
+  **OAuth** (`wrangler login`), which stores the credential in the OS keychain
+  (e.g. the **macOS Keychain**). This is the appropriate path for the owner
+  running `pnpm run deploy:production` from their own machine — no API token need
+  ever be written to disk.
+- **Headless / CI deployment** should use a scoped **API token**
+  (`CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`), which is the appropriate
+  approach where no interactive login is possible.
 
 ### If you later add a deploy workflow
 
@@ -182,13 +257,15 @@ using these secrets from an untrusted pull request.
 
 ## Current status
 
-As of this scaffold, deployment configuration is **valid** (`deploy:dry-run`
-passes) but **no real deployment has been performed**, because no Cloudflare
-account/target/credentials are available in this environment. This is the single
-remaining external verification item for FND-01; it stays `◐ In progress` until a
-real deployment is verified and its URL recorded here.
+Deployment configuration is **valid** (`deploy:dry-run` passes) **and a real
+production deployment has been performed and verified**:
 
-<!-- Record the verified deployment here once performed:
-- Deployed URL: <https://…>
-- Verified on: <date> — foundation page + /health confirmed.
--->
+- **Deployed URL:** <https://hub.daly.id.au>
+- **Verified on:** 2026-07-18 — authenticated owner shell (through Cloudflare
+  Access) and public `/health` confirmed; production Worker `dalyhub-v2-production`
+  on the provisioned remote D1 database and workspace, migrations `0001`–`0005`
+  applied; the direct `workers.dev` origin returns 404 and Preview URLs are
+  disabled.
+
+FND-01 is `☑ Done` (see [ROADMAP_V2](../roadmap/ROADMAP_V2.md#-fnd-01--repository--toolchain-scaffold)).
+Real production identifiers and secrets remain uncommitted.

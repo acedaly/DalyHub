@@ -227,19 +227,24 @@ cache policy. Framework stack traces are never emitted outside development.
 
 Cloudflare Access protects the configured Access hostname. An unprotected
 alternate Worker hostname (for example the default `workers.dev` route) must not
-become a bypass to private data. Production deployment must protect the custom
-hostname with Access, disable or otherwise secure the `workers.dev` route,
-validate JWTs in the Worker (as here), configure the exact issuer/AUD/owner,
-apply migrations before deployment, and smoke-test both the protected and the
-direct origins. See [DEPLOYMENT.md](./DEPLOYMENT.md).
+become a bypass to private data. The named `env.production` config commits
+`workers_dev: false` and `preview_urls: false` so both alternate origins are
+disabled, and Access protects the dashboard-managed custom hostname. **In the
+verified production deployment (2026-07-18)** the custom hostname
+(<https://hub.daly.id.au>) is Access-protected, the JWT is validated in the Worker
+(as here) against the exact issuer/AUD/owner, migrations `0001`–`0005` were applied
+before deployment, the direct `workers.dev` origin is disabled (404) and Preview
+URLs are disabled. See [DEPLOYMENT.md](./DEPLOYMENT.md).
 
-## What remains for real FND-01 deployment verification
+## FND-01 production deployment (verified)
 
-FND-09 is complete with production-equivalent JWT verification proven locally and
-in CI. A **live** Cloudflare deployment (real team domain, AUD, owner, custom
-hostname, provisioned D1) remains the explicitly owner-deferred final condition
-of FND-01 and is not required to mark FND-09 done. FND-01 is not marked complete
-without real deployment evidence.
+FND-09 shipped with production-equivalent JWT verification proven locally and in
+CI. FND-01's **live** Cloudflare deployment has since been completed and verified
+(2026-07-18): the production Worker `dalyhub-v2-production` runs on the real team
+domain / AUD / owner and provisioned remote D1, with the authenticated owner shell
+loading through Cloudflare Access. FND-01 is now `☑ Done`. Real production
+identifiers and secrets remain uncommitted. See
+[DEPLOYMENT.md](./DEPLOYMENT.md).
 
 ## What FND-09 deliberately does not build
 

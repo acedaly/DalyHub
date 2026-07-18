@@ -84,6 +84,20 @@
   // silently shipped.
   "env": {
     "production": {
+      // Permanently disable the alternate public origins for the named production
+      // environment. Cloudflare Access protects only the dashboard-managed Custom
+      // Domain (hub.daly.id.au); the default `*.workers.dev` route and Cloudflare
+      // Preview URLs would be UNPROTECTED origins that reach the Worker without an
+      // Access token, so they are turned off here. The Cloudflare Vite build
+      // flattens these into build/server/wrangler.json (verified by the deploy
+      // guard and its tests), and `scripts/deploy-production.mjs` refuses to upload
+      // if either is not `false`. These belong to the named production environment
+      // only — local development (top-level config) keeps Wrangler's defaults so
+      // `wrangler dev` and the credential-free dry-run work normally. No Worker
+      // route or Custom Domain is declared here: the Custom Domain is managed
+      // through the Cloudflare dashboard and must not be added/removed by Wrangler.
+      "workers_dev": false,
+      "preview_urls": false,
       "vars": {
         // Production is ALWAYS production: this gates off development auth (the
         // development authenticator requires ENVIRONMENT development/test) and
