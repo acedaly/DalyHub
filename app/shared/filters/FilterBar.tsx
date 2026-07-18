@@ -28,6 +28,7 @@ import type {
   FilterFieldRegistry,
   FilterMode,
 } from "./types";
+import type { FilterValueControls } from "./value-controls";
 import { findField } from "./validate";
 
 export interface FilterBarProps {
@@ -39,6 +40,8 @@ export interface FilterBarProps {
   /** Total records before filtering (for a "N of M" display). */
   readonly totalCount?: number;
   readonly savedViews?: SavedViewAdapter;
+  /** Optional UI-only custom value controls (the DS-06 seam), keyed by field id. */
+  readonly valueControls?: FilterValueControls;
   readonly label?: string;
   readonly className?: string;
 }
@@ -55,6 +58,7 @@ export function FilterBar({
   resultCount,
   totalCount,
   savedViews,
+  valueControls,
   label = "Filters",
   className,
 }: FilterBarProps) {
@@ -186,6 +190,7 @@ export function FilterBar({
                 onApply={applyClause}
                 onCancel={closeEditor}
                 labelId={editorLabelId}
+                valueControls={valueControls}
               />
             </div>
           ) : null}

@@ -65,7 +65,15 @@ export interface ReorderableCardCollectionProps<T> {
   readonly onReorder: (nextIds: string[], detail: ReorderDetail) => void;
   readonly renderItem: (item: T, api: ReorderItemApi) => ReactNode;
   readonly ariaLabel: string;
-  readonly presentation?: "list" | "grid";
+  /**
+   * Reorder presentation. **List only** for now: pointer targeting is
+   * one-dimensional (vertical midpoints), which is correct for a single-column
+   * list but NOT for a multi-column grid. A genuine two-dimensional grid reorder
+   * is deferred to a later item; use the plain `CardCollection` for grid/board
+   * layouts (which do not offer drag). Kept as a prop so a `board` column — itself
+   * a vertical list — can opt in later without an API change.
+   */
+  readonly presentation?: "list";
   readonly density?: CardDensity;
   readonly className?: string;
 }
@@ -116,6 +124,14 @@ export function ReorderableCardCollection<T>({
   const [announcement, setAnnouncement] = useState("");
 
   const originalOrderRef = useRef<string[]>([]);
+  // The committed collection snapshot captured when a drag begins: the exact id
+  // order AND the pinned set. Any external change to either before drop
+  // invalidates the drag, so we never emit an order that isn't a permutation of
+  // the CURRENT collection.
+  const dragBaselineRef = useRef<{
+    order: string[];
+    pinned: string[];
+  } | null>(null);
   const handleEls = useRef(new Map<string, HTMLButtonElement | null>());
   const itemEls = useRef(new Map<string, HTMLLIElement | null>());
 
@@ -138,7 +154,26 @@ export function ReorderableCardCollection<T>({
   const endDrag = useCallback(() => {
     setDrag(null);
     setWorkingOrder(null);
+    dragBaselineRef.current = null;
   }, []);
+
+  // Whether the collection is unchanged since the drag began: same id order AND
+  // same pinned set. If either changed (item added/removed/reordered externally,
+  // or an item's reorderable/pinned state flipped), the in-flight order is stale.
+  const baselineValid = useCallback(() => {
+    const baseline = dragBaselineRef.current;
+    if (baseline === null) {
+      return false;
+    }
+    if (ordersDiffer(baseline.order, committedOrder)) {
+      return false;
+    }
+    const currentPinned = [...pinned].sort();
+    return (
+      baseline.pinned.length === currentPinned.length &&
+      baseline.pinned.every((id, index) => id === currentPinned[index])
+    );
+  }, [committedOrder, pinned]);
 
   const commit = useCallback(
     (order: string[], id: string) => {
@@ -153,14 +188,15 @@ export function ReorderableCardCollection<T>({
     [committedOrder, onReorder],
   );
 
-  // If the grabbed card is removed (or its collection changes) mid-drag, cancel
-  // cleanly rather than leaving a dangling grab.
+  // If the collection changes in ANY way mid-drag (grabbed item removed, another
+  // item added/removed/reordered, or pinned/reorderable state changed), cancel the
+  // drag cleanly and announce it — never emit a stale, non-permutation order.
   useEffect(() => {
-    if (drag && !committedOrder.includes(drag.id)) {
+    if (drag && !baselineValid()) {
+      setAnnouncement("Reorder cancelled because the list changed.");
       endDrag();
-      setAnnouncement("");
     }
-  }, [drag, committedOrder, endDrag]);
+  }, [drag, baselineValid, endDrag]);
 
   const pickUp = useCallback(
     (id: string, mode: DragState["mode"]) => {
@@ -168,6 +204,10 @@ export function ReorderableCardCollection<T>({
         return;
       }
       originalOrderRef.current = [...committedOrder];
+      dragBaselineRef.current = {
+        order: [...committedOrder],
+        pinned: [...pinned].sort(),
+      };
       setWorkingOrder([...committedOrder]);
       setDrag({ id, mode });
       setAnnouncement(
@@ -179,12 +219,27 @@ export function ReorderableCardCollection<T>({
 
   const drop = useCallback(
     (id: string) => {
+      // Belt-and-braces: if the collection changed between the last move and this
+      // drop, do not emit — treat it as a cancellation.
+      if (!baselineValid()) {
+        setAnnouncement("Reorder cancelled because the list changed.");
+        endDrag();
+        return;
+      }
       const order = workingOrder ?? committedOrder;
       commit(order, id);
       setAnnouncement(`Dropped ${labelFor(id)}. ${positionText(order, id)}.`);
       endDrag();
     },
-    [workingOrder, committedOrder, commit, labelFor, positionText, endDrag],
+    [
+      workingOrder,
+      committedOrder,
+      commit,
+      labelFor,
+      positionText,
+      endDrag,
+      baselineValid,
+    ],
   );
 
   const cancel = useCallback(

@@ -6,66 +6,20 @@
  * pure client-side evaluator, a reusable Filter Bar with add/edit/chips/clear and
  * AND/OR, a storage-agnostic saved-view adapter, and the filtered-empty state.
  *
- * The pure model (types, operators, validate, evaluate, url, saved-views, display)
- * imports no React, so a future server-backed module can translate a
- * `FilterExpression` into its own query layer without pulling in the UI.
+ * Two honestly-separated halves:
+ *   - the PURE, React-free MODEL — re-exported from `./model` (types, operators,
+ *     validate, evaluate, url, saved-views, display). Non-UI/server code should
+ *     import `~/shared/filters/model` directly so it never resolves React.
+ *   - the React UI — the components/hook/value-control seam below.
+ *
+ * This barrel re-exports both for app UI convenience; server code must use
+ * `./model` to stay React-free.
  */
 
-// Model — pure, framework-free.
-export type {
-  FilterClause,
-  FilterExpression,
-  FilterFieldDefinition,
-  FilterFieldRegistry,
-  FilterMode,
-  FilterOperator,
-  FilterOption,
-  FilterRange,
-  FilterValue,
-  FilterValueControlProps,
-  FilterValueType,
-} from "./types";
-export {
-  OPERATORS_BY_TYPE,
-  getOperatorDefinition,
-  operatorArity,
-  operatorTakesNoValue,
-} from "./operators";
-export type { OperatorArity, OperatorDefinition } from "./operators";
-export {
-  EMPTY_EXPRESSION,
-  MAX_CLAUSES,
-  expressionsEqual,
-  findField,
-  isValidValueForOperator,
-  operatorsForField,
-  sanitiseExpression,
-  validateClause,
-} from "./validate";
-export type { ClauseRejectReason, ClauseValidation } from "./validate";
-export { filterRecords, matchesExpression } from "./evaluate";
-export {
-  FILTER_MODE_PARAM,
-  FILTER_PARAM,
-  FILTER_VERSION,
-  FILTER_VERSION_PARAM,
-  MAX_ENCODED_CLAUSE_LENGTH,
-  decodeClause,
-  encodeClause,
-  readFilterExpression,
-  writeFilterExpression,
-} from "./url";
-export {
-  clauseAccessibleName,
-  defaultOperatorForField,
-  defaultValueForOperator,
-  describeClause,
-} from "./display";
-export type { ClauseDescription } from "./display";
-export { findSavedView, isViewModified } from "./saved-views";
-export type { SavedView, SavedViewAdapter } from "./saved-views";
+// Pure, framework-free model (see ./model).
+export * from "./model";
 
-// UI — React components.
+// UI — React components, the URL-state hook, and the custom value-control seam.
 export { FilterBar } from "./FilterBar";
 export type { FilterBarProps } from "./FilterBar";
 export { FilterChip } from "./FilterChip";
@@ -74,3 +28,8 @@ export { FilterValueInput } from "./FilterValueInput";
 export { FilterEmptyState } from "./FilterEmptyState";
 export { useFilterUrlState } from "./useFilterUrlState";
 export type { FilterUrlState } from "./useFilterUrlState";
+export type {
+  FilterValueControlProps,
+  FilterValueControlRenderer,
+  FilterValueControls,
+} from "./value-controls";

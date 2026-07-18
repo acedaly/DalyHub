@@ -25,6 +25,12 @@ export interface SavedView {
 /**
  * The adapter the shared Filter Bar consumes. Every callback is optional so a
  * read-only host can omit mutation. The bar never persists; it only signals intent.
+ *
+ * The bar exposes exactly the interactions listed here — select, save-as, update
+ * and delete. Renaming has NO Filter Bar interaction yet, so no `onRename` callback
+ * is exposed; a saved-view *management* surface (rename, reorder, share) arrives
+ * with X-02. This keeps the public contract honest — it never advertises a callback
+ * the bar does not drive.
  */
 export interface SavedViewAdapter {
   readonly views: readonly SavedView[];
@@ -33,7 +39,6 @@ export interface SavedViewAdapter {
   readonly onSaveRequested?: (name: string) => void;
   readonly onUpdateRequested?: (viewId: string) => void;
   readonly onDeleteRequested?: (viewId: string) => void;
-  readonly onRenameRequested?: (viewId: string, name: string) => void;
 }
 
 /** Find a saved view by id. */

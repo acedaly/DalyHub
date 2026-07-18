@@ -169,6 +169,28 @@ describe("FilterBar — edit, remove, clear", () => {
   });
 });
 
+describe("FilterBar — custom value-control seam (DS-06 ready)", () => {
+  it("renders a consumer-supplied value control for a field", () => {
+    render(
+      <FilterBar
+        fields={FIELDS}
+        expression={{ mode: "and", clauses: [] }}
+        onChange={() => {}}
+        valueControls={{
+          title: ({ inputId }) => (
+            <input data-testid="custom-title-control" id={inputId} />
+          ),
+        }}
+      />,
+    );
+    const dialog = openAddEditor();
+    // The custom control replaces the built-in native text input for `title`.
+    expect(
+      within(dialog).getByTestId("custom-title-control"),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("FilterBar — saved views", () => {
   it("signals selection of a saved view by id", () => {
     const onSelect = vi.fn();

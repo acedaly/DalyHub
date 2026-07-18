@@ -9,10 +9,11 @@
  * a `FilterExpression` into its own query layer without importing React.
  *
  * It knows nothing about D1, repositories, workspaces, the Area hierarchy, task
- * completion, real routes or Cloudflare bindings.
+ * completion, real routes or Cloudflare bindings — and it imports NO React, so a
+ * server-side module can translate a `FilterExpression` into its own query layer
+ * without resolving any UI code (see `app/shared/filters/model.ts`). UI-only value
+ * controls live in `app/shared/filters/value-controls.ts`, kept out of this file.
  */
-
-import type { ReactNode } from "react";
 
 /**
  * The generic value types a filter field can carry. These are presentation/model
@@ -129,20 +130,10 @@ export interface FilterFieldDefinition {
     value: FilterValue,
     definition: FilterFieldDefinition,
   ) => string | undefined;
-  /**
-   * Optional custom value control (kept as a seam for DS-06 shared form controls
-   * later). DS-07 renders restrained native controls when this is absent.
-   */
-  readonly renderValueControl?: (props: FilterValueControlProps) => ReactNode;
-}
-
-/** Props a (future DS-06) custom value control receives. */
-export interface FilterValueControlProps {
-  readonly definition: FilterFieldDefinition;
-  readonly operator: FilterOperator;
-  readonly value: FilterValue;
-  readonly onChange: (value: FilterValue) => void;
-  readonly inputId: string;
+  // NOTE: custom value-control rendering is a UI-only concern and deliberately
+  // NOT part of this React-free contract. It lives in
+  // `app/shared/filters/value-controls.ts` as a `FilterValueControls` registry the
+  // Filter Bar consumes — the seam DS-06 shared form controls will plug into.
 }
 
 /** A map of field id → definition, the registry a Filter Bar is driven by. */

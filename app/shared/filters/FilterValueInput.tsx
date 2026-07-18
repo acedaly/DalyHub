@@ -4,9 +4,10 @@
  * Renders a RESTRAINED NATIVE control appropriate to the field's value type and
  * the operator's arity: nothing for no-value operators; a text/number/date input
  * or a select for scalar operators; a checkbox group for membership (list)
- * operators; a from/to pair for `between`. Every control is labelled. When DS-06
- * ships shared form controls, a field can supply `renderValueControl` and this
- * falls back to it — the filter contract is already ready to consume DS-06.
+ * operators; a from/to pair for `between`. Every control is labelled. When a
+ * consumer (e.g. future DS-06 shared form controls) supplies a custom control for
+ * a field through the UI-only `valueControls` registry, this falls back to it —
+ * the filter contract is already ready to consume DS-06.
  */
 
 import { operatorArity } from "./operators";
@@ -16,6 +17,7 @@ import type {
   FilterRange,
   FilterValue,
 } from "./types";
+import type { FilterValueControls } from "./value-controls";
 
 interface FilterValueInputProps {
   readonly definition: FilterFieldDefinition;
@@ -23,6 +25,7 @@ interface FilterValueInputProps {
   readonly value: FilterValue | undefined;
   readonly onChange: (value: FilterValue) => void;
   readonly idBase: string;
+  readonly valueControls?: FilterValueControls;
 }
 
 export function FilterValueInput({
@@ -31,13 +34,15 @@ export function FilterValueInput({
   value,
   onChange,
   idBase,
+  valueControls,
 }: FilterValueInputProps) {
   const arity = operatorArity(operator);
 
-  if (definition.renderValueControl && arity !== "none") {
+  const customControl = valueControls?.[definition.id];
+  if (customControl && arity !== "none") {
     return (
       <>
-        {definition.renderValueControl({
+        {customControl({
           definition,
           operator,
           value: value ?? null,

@@ -21,6 +21,7 @@ import type {
   FilterOperator,
   FilterValue,
 } from "./types";
+import type { FilterValueControls } from "./value-controls";
 
 interface FilterEditorProps {
   readonly fields: FilterFieldRegistry;
@@ -28,6 +29,7 @@ interface FilterEditorProps {
   readonly onApply: (clause: FilterClause) => void;
   readonly onCancel: () => void;
   readonly labelId: string;
+  readonly valueControls?: FilterValueControls;
 }
 
 const REASON_MESSAGES: Record<string, string> = {
@@ -43,6 +45,7 @@ export function FilterEditor({
   onApply,
   onCancel,
   labelId,
+  valueControls,
 }: FilterEditorProps) {
   const generatedId = useId();
   const clauseId = initialClause?.id ?? generatedId;
@@ -163,6 +166,7 @@ export function FilterEditor({
               setShowErrors(false);
             }}
             idBase={clauseId}
+            valueControls={valueControls}
           />
         </div>
       ) : null}

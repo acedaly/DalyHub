@@ -32,11 +32,33 @@ export function findField(
   return registry.find((definition) => definition.id === fieldId);
 }
 
-/** The operators allowed for a field (its override, else the type default). */
+const IS_DEV =
+  typeof process !== "undefined" && process.env?.NODE_ENV !== "production";
+
+/**
+ * The operators allowed for a field: its `operators` override, else the value
+ * type's default set. An override may only **narrow** the type's default set — it
+ * must never widen a field to operators invalid for its type. A widening override
+ * is a field-definition bug: it throws in development (so it surfaces clearly) and
+ * is clamped to the safe intersection in production (so it can never introduce an
+ * unsafe clause).
+ */
 export function operatorsForField(
   definition: FilterFieldDefinition,
 ): readonly FilterOperator[] {
-  return definition.operators ?? OPERATORS_BY_TYPE[definition.type];
+  const allowed = OPERATORS_BY_TYPE[definition.type];
+  if (!definition.operators) {
+    return allowed;
+  }
+  const invalid = definition.operators.filter((op) => !allowed.includes(op));
+  if (invalid.length > 0 && IS_DEV) {
+    throw new Error(
+      `Filter field "${definition.id}" (type "${definition.type}") declares ` +
+        `operators not valid for its type: ${invalid.join(", ")}. An operators ` +
+        `override may only narrow the type's default set, never widen it.`,
+    );
+  }
+  return definition.operators.filter((op) => allowed.includes(op));
 }
 
 function isPlainRange(value: FilterValue): value is FilterRange {
@@ -93,6 +115,107 @@ export function isValidValueForOperator(
   }
 }
 
+/**
+ * A strict `YYYY-MM-DD` calendar date (the documented date contract — the value a
+ * native date input produces). Rejects malformed strings and impossible dates
+ * (e.g. `2026-02-31`), booleans, numbers and timestamps.
+ */
+export function isStrictCalendarDate(value: unknown): value is string {
+  if (typeof value !== "string") {
+    return false;
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return false;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+}
+
+/** A string that parses to a finite number (rejects "", "banana", Infinity text). */
+function isFiniteNumberString(value: unknown): boolean {
+  if (typeof value !== "string" || value.trim() === "") {
+    return false;
+  }
+  return Number.isFinite(Number(value));
+}
+
+/**
+ * Whether `value` matches the FIELD's declared value type (not just the operator's
+ * arity). This is what rejects a boolean for a text filter, `"banana"` for a
+ * numeric `gt`, a number for an enum, or a bad date — malformed clauses restored
+ * from a URL can otherwise slip past an arity-only check.
+ *
+ * Enum/reference/multi-enum: values must be strings (or string arrays). Unknown
+ * option values are **retained** (not rejected) for forward compatibility — a
+ * field's `options` may be a partial or lazily-loaded set, and a saved view must
+ * not break when the option list changes. Only the value *type* is enforced.
+ */
+export function valueMatchesFieldType(
+  definition: FilterFieldDefinition,
+  operator: string,
+  value: FilterValue | undefined,
+): boolean {
+  const arity = operatorArity(operator);
+  switch (arity) {
+    case "none":
+      return true;
+    case "scalar":
+      switch (definition.type) {
+        case "text":
+          return typeof value === "string" && value.length > 0;
+        case "number":
+          return typeof value === "number" && Number.isFinite(value);
+        case "date":
+          return isStrictCalendarDate(value);
+        case "enum":
+        case "reference":
+          return typeof value === "string" && value.length > 0;
+        default:
+          // boolean/multi-enum have no scalar operators.
+          return false;
+      }
+    case "list":
+      if (
+        definition.type === "enum" ||
+        definition.type === "reference" ||
+        definition.type === "multi-enum"
+      ) {
+        return (
+          isStringArray(value ?? null) &&
+          (value as readonly string[]).length > 0
+        );
+      }
+      return false;
+    case "range":
+      if (!isPlainRange(value ?? null)) {
+        return false;
+      }
+      if (definition.type === "date") {
+        return (
+          isStrictCalendarDate((value as FilterRange).from) &&
+          isStrictCalendarDate((value as FilterRange).to)
+        );
+      }
+      if (definition.type === "number") {
+        return (
+          isFiniteNumberString((value as FilterRange).from) &&
+          isFiniteNumberString((value as FilterRange).to)
+        );
+      }
+      return false;
+    default:
+      return false;
+  }
+}
+
 /** A precise reason a clause was rejected (for coherent surfacing, not just drop). */
 export type ClauseRejectReason =
   | "unknown-field"
@@ -120,7 +243,13 @@ export function validateClause(
   if (!operatorsForField(definition).includes(clause.operator)) {
     return { valid: false, reason: "operator-not-allowed" };
   }
-  if (!isValidValueForOperator(clause.operator, clause.value)) {
+  // Value must satisfy BOTH the operator's arity/shape and the field's value TYPE
+  // (so a boolean for a text filter, "banana" for a numeric gt, or a bad date is
+  // rejected even when restored from an untrusted URL).
+  if (
+    !isValidValueForOperator(clause.operator, clause.value) ||
+    !valueMatchesFieldType(definition, clause.operator, clause.value)
+  ) {
     return { valid: false, reason: "invalid-value" };
   }
   return { valid: true };
