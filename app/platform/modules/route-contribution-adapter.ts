@@ -10,29 +10,30 @@
  * Router primitives.
  *
  * It resolves the flat, validated route list into a parent→children tree using
- * each route's `parentId`. It passes every route's `lazy` reference through
- * UNCHANGED and NEVER invokes it, so composing (or querying) route structure
- * never eagerly loads a module's page component.
+ * each route's `parentId`. It passes every route's declarative `file` reference
+ * through UNCHANGED, so composing (or querying) route structure is pure data
+ * assembly that never eagerly loads a module's page component.
  */
 
 import type {
   ModuleId,
   RegisteredRoute,
   RouteMeta,
-  RouteModuleLoader,
+  RouteModuleFile,
 } from "~/kernel/modules";
 
 /**
  * A resolved route node: a module-owned route plus its nested children. This is
- * the minimal shape FND-09 needs to emit `route()`/`index()` calls with nesting;
- * `lazy` is carried through untouched for FND-09 to wire as the route module.
+ * the framework-agnostic shape the React Router adapter maps onto
+ * `route()`/`index()` calls with nesting; `file` is carried through untouched for
+ * the adapter to resolve into a build-time route-module reference.
  */
 export type RouteTreeNode = {
   readonly id: string;
   readonly moduleId: ModuleId;
   readonly path?: string;
   readonly index?: boolean;
-  readonly lazy: RouteModuleLoader;
+  readonly file: RouteModuleFile;
   readonly meta?: RouteMeta;
   readonly children: readonly RouteTreeNode[];
 };
@@ -59,7 +60,7 @@ export function buildModuleRouteTree(
         moduleId: route.moduleId,
         ...(route.path === undefined ? {} : { path: route.path }),
         ...(route.index === undefined ? {} : { index: route.index }),
-        lazy: route.lazy,
+        file: route.file,
         ...(route.meta === undefined ? {} : { meta: route.meta }),
         children: [],
       };

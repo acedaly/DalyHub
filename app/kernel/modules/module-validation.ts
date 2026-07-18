@@ -66,6 +66,25 @@ export const QUALIFIED_ID_LOCAL_PATTERN =
 /** Maximum length of a route path, in characters. */
 export const ROUTE_PATH_MAX_LENGTH = 256;
 
+/** Maximum length of a module-relative route module file reference, in characters. */
+export const ROUTE_FILE_MAX_LENGTH = 256;
+
+/** Route module file extensions the toolchain can compile (ADR-016 §5.10). */
+export const ROUTE_FILE_EXTENSIONS: readonly string[] = [
+  ".tsx",
+  ".ts",
+  ".jsx",
+  ".js",
+];
+
+/**
+ * A single segment of a module-relative route file path: a safe filename token
+ * (letters, digits, `_`, `-`, `.`). `.` and `..` segments are rejected
+ * separately by the file validator so a reference can never traverse out of its
+ * owning module directory.
+ */
+const ROUTE_FILE_SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/;
+
 /** Maximum length of a display label (name, label, singular/plural, option label). */
 export const LABEL_MAX_LENGTH = 200;
 
@@ -346,6 +365,110 @@ export function validateRoutePath(
   return value;
 }
 
+/**
+ * Validate a module-relative route module file reference (ADR-016 §5.10): a
+ * string, non-empty, bounded, relative (no leading slash, no drive letter, no
+ * backslash), free of whitespace/query/hash, with no empty or `.`/`..` traversal
+ * segment and a compilable route-module extension. Because the platform adapter
+ * resolves it against `app/modules/<module-id>/`, these rules guarantee the
+ * reference stays INSIDE the owning module directory — it can never point at an
+ * absolute filesystem path, another module's file, or anything outside the app.
+ */
+export function validateRouteFile(
+  value: unknown,
+  moduleId: string,
+  field: string,
+): string {
+  if (typeof value !== "string") {
+    throw new ModuleDefinitionError(field, "must be a string", moduleId);
+  }
+  if (value.length === 0) {
+    throw new ModuleDefinitionError(field, "must not be empty", moduleId);
+  }
+  if (value.length > ROUTE_FILE_MAX_LENGTH) {
+    throw new ModuleDefinitionError(
+      field,
+      `must be at most ${ROUTE_FILE_MAX_LENGTH} characters`,
+      moduleId,
+    );
+  }
+  if (/\s/.test(value)) {
+    throw new ModuleDefinitionError(
+      field,
+      "must not contain whitespace",
+      moduleId,
+    );
+  }
+  if (value.includes("?") || value.includes("#")) {
+    throw new ModuleDefinitionError(
+      field,
+      "must not contain a query string or hash",
+      moduleId,
+    );
+  }
+  if (value.includes("\\")) {
+    throw new ModuleDefinitionError(
+      field,
+      "must not contain a backslash",
+      moduleId,
+    );
+  }
+  if (value.startsWith("/")) {
+    throw new ModuleDefinitionError(
+      field,
+      "must be module-relative (no absolute path)",
+      moduleId,
+    );
+  }
+  // Reject a Windows drive-letter absolute path (e.g. `C:/…`) explicitly; the
+  // `:` also fails the segment charset below, but the message is clearer here.
+  if (/^[A-Za-z]:/.test(value)) {
+    throw new ModuleDefinitionError(
+      field,
+      "must be module-relative (no absolute path)",
+      moduleId,
+    );
+  }
+  if (value.endsWith("/")) {
+    throw new ModuleDefinitionError(
+      field,
+      "must reference a file (no trailing slash)",
+      moduleId,
+    );
+  }
+  for (const segment of value.split("/")) {
+    if (segment.length === 0) {
+      throw new ModuleDefinitionError(
+        field,
+        "must not contain an empty path segment",
+        moduleId,
+      );
+    }
+    if (segment === "." || segment === "..") {
+      throw new ModuleDefinitionError(
+        field,
+        "must not contain a path traversal segment",
+        moduleId,
+      );
+    }
+    if (!ROUTE_FILE_SEGMENT_PATTERN.test(segment)) {
+      throw new ModuleDefinitionError(
+        field,
+        `has an invalid file path segment "${segment}"`,
+        moduleId,
+      );
+    }
+  }
+  if (!ROUTE_FILE_EXTENSIONS.some((extension) => value.endsWith(extension))) {
+    throw new ModuleDefinitionError(
+      field,
+      `must reference a ${ROUTE_FILE_EXTENSIONS.join("/")} route module`,
+      moduleId,
+    );
+  }
+  return value;
+}
+
 /** Wrap a reused kernel identifier validator's failure as a registry error. */
 function runIdentifierValidator<T>(
   validate: () => T,
@@ -417,13 +540,7 @@ export function validateRouteContribution(
     );
   }
 
-  if (typeof contribution.lazy !== "function") {
-    throw new ModuleDefinitionError(
-      `${field}.lazy`,
-      "must be a function returning the route module (a lazy import)",
-      moduleId,
-    );
-  }
+  const file = validateRouteFile(contribution.file, moduleId, `${field}.file`);
 
   let meta: RouteContribution["meta"];
   if (contribution.meta !== undefined) {
@@ -455,7 +572,7 @@ export function validateRouteContribution(
     id,
     ...(isIndex ? { index: true as const } : { path: path as string }),
     ...(parentId === undefined ? {} : { parentId }),
-    lazy: contribution.lazy,
+    file,
     ...(meta === undefined ? {} : { meta }),
   };
 }

@@ -53,8 +53,48 @@ pnpm run deploy          # build + `wrangler deploy`
 Wrangler prints the deployed `*.workers.dev` URL (or your configured route).
 Verify by opening the URL and checking:
 
-- the foundation page renders (`DalyHub V2` heading, document title `DalyHub`);
-- `GET /health` returns `{"status":"ok","name":"DalyHub", ...}`.
+- `GET /health` returns `{"status":"ok","name":"DalyHub", ...}` (public);
+- the authenticated shell renders **through Cloudflare Access** (document title
+  `DalyHub`, the owner email in the header) — a request to a protected route
+  without a valid Access token must be rejected, not served.
+
+## Authentication & Access configuration (FND-09)
+
+DalyHub authenticates every protected request by validating the Cloudflare Access
+application token in the Worker (see
+[`APP_SHELL_AUTH.md`](APP_SHELL_AUTH.md) and
+[ADR-016](../decisions/ARCHITECTURE_DECISIONS.md#adr-016-cloudflare-access-identity-app-shell-and-registry-driven-routing)).
+A real deployment must set these as Worker configuration (via `wrangler secret` /
+dashboard bindings — **never** committed to `wrangler.jsonc` with real values):
+
+| Value                | Purpose                                                        |
+| -------------------- | -------------------------------------------------------------- |
+| `AUTH_MODE`          | `cloudflare-access` in production (the committed default).     |
+| `ACCESS_TEAM_DOMAIN` | `https://<team>.cloudflareaccess.com` — the token issuer/JWKS. |
+| `ACCESS_AUD`         | The Access application Audience (AUD) tag.                     |
+| `OWNER_EMAIL`        | The single owner; enforced independently of the Access policy. |
+
+The committed defaults are **fail-closed** (Cloudflare Access mode with empty
+team domain/AUD/owner), so an unconfigured deployment rejects every protected
+request rather than exposing data.
+
+### workers.dev / custom-domain origin bypass (must-do before going live)
+
+Cloudflare Access protects the **configured Access hostname**. An unprotected
+alternate origin — most importantly the default `*.workers.dev` route — would let
+a client reach the Worker without an Access token and is a bypass to private
+data. Because DalyHub also validates the JWT inside the Worker, such a request
+still fails closed (503, no valid token) — but defence in depth requires closing
+the origin too. Before a live deployment:
+
+- protect the **custom hostname** with a Cloudflare Access policy restricted to
+  the owner;
+- **disable** (or otherwise secure) the default `*.workers.dev` route so it is not
+  an unauthenticated entry point;
+- confirm the Worker validates JWTs (issuer/AUD/owner) — as implemented here;
+- apply D1 migrations before deployment;
+- smoke-test **both** the protected hostname (authenticated shell) and the direct
+  origin (rejected), plus public `/health`.
 
 ### If you later add a deploy workflow
 

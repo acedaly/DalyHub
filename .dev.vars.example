@@ -16,3 +16,20 @@ ENVIRONMENT="development"
 # id (see docs/development/DATA_KERNEL.md). Create the matching local workspace
 # row before the resolver will succeed locally.
 DEFAULT_WORKSPACE_ID="local-dev-workspace"
+
+# FND-09 authentication (ADR-016). Locally we use the explicit DEVELOPMENT
+# authenticator: a fixed, non-personal identity, enabled ONLY when AUTH_MODE is
+# "development" AND ENVIRONMENT is "development"/"test". It is never activated by
+# a request. These placeholders are safe, non-personal values — never a real
+# owner email.
+AUTH_MODE="development"
+DEV_AUTH_SUBJECT="local-development-user"
+DEV_AUTH_EMAIL="owner@example.invalid"
+
+# CLOUDFLARE ACCESS (production) — leave these OUT of local development. They are
+# supplied at deploy time via `wrangler secret` / dashboard bindings, NEVER
+# committed. Shown here only to document the shape; do NOT fill in real values.
+#   AUTH_MODE="cloudflare-access"
+#   ACCESS_TEAM_DOMAIN="https://<your-team>.cloudflareaccess.com"
+#   ACCESS_AUD="<your-access-application-audience-tag>"
+#   OWNER_EMAIL="<the-owner-email>"
