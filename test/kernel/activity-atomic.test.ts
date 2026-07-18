@@ -140,7 +140,7 @@ describe("FND-05 atomic recording mechanisms (real D1)", () => {
         idGenerator: sequentialIds("e"),
         activityIdGenerator: sequentialIds("act"),
       });
-      const created = await entities.create({ type: "task", title: "Do it" });
+      const created = await entities.create({ type: "widget", title: "Do it" });
 
       expect(await countRows()).toBe(1);
       expect(await countActivities()).toBe(1);
@@ -169,7 +169,7 @@ describe("FND-05 atomic recording mechanisms (real D1)", () => {
         activityFault: "after-activity",
       });
       await expect(
-        entities.create({ type: "task", title: "Nope" }),
+        entities.create({ type: "widget", title: "Nope" }),
       ).rejects.toBeTruthy();
 
       expect(await countRows()).toBe(0);
@@ -181,7 +181,7 @@ describe("FND-05 atomic recording mechanisms (real D1)", () => {
       const entities = makeRepository(CTX, {
         idGenerator: sequentialIds("e"),
       });
-      const created = await entities.create({ type: "task", title: "Keep" });
+      const created = await entities.create({ type: "widget", title: "Keep" });
 
       const faulty = makeRepository(CTX, { activityFault: "after-activity" });
       await expect(faulty.softDelete(created.id)).rejects.toBeTruthy();
@@ -199,9 +199,9 @@ describe("FND-05 atomic recording mechanisms (real D1)", () => {
         idGenerator: sequentialIds("e"),
         activityIdGenerator: () => "dup_activity_id",
       });
-      await entities.create({ type: "task", title: "First" });
+      await entities.create({ type: "widget", title: "First" });
       await expect(
-        entities.create({ type: "task", title: "Second" }),
+        entities.create({ type: "widget", title: "Second" }),
       ).rejects.toBeTruthy();
 
       expect(await countRows()).toBe(1);
@@ -211,7 +211,7 @@ describe("FND-05 atomic recording mechanisms (real D1)", () => {
     it("entity update is rolled back when the append fails", async () => {
       const entities = makeRepository(CTX, { idGenerator: sequentialIds("e") });
       const created = await entities.create({
-        type: "task",
+        type: "widget",
         title: "Original",
       });
 
@@ -229,7 +229,7 @@ describe("FND-05 atomic recording mechanisms (real D1)", () => {
       const entities = makeRepository(CTX, { idGenerator: sequentialIds("e") });
       await expect(
         makeRepository(CTX, { activityFault: "after-first-subject" }).create({
-          type: "task",
+          type: "widget",
           title: "Nope",
         }),
       ).rejects.toBeTruthy();
@@ -282,7 +282,7 @@ describe("FND-05 atomic recording mechanisms (real D1)", () => {
     it("a subject-stage failure rolls back an entity link creation and its event", async () => {
       const entities = makeRepository(CTX, { idGenerator: sequentialIds("e") });
       const a = await entities.create({ type: "meeting", title: "A" });
-      const b = await entities.create({ type: "task", title: "B" });
+      const b = await entities.create({ type: "widget", title: "B" });
       const activitiesBefore = await countActivities();
 
       const links = makeLinkRepository(CTX, {
@@ -312,7 +312,7 @@ describe("FND-05 atomic recording mechanisms (real D1)", () => {
         idGenerator: sequentialIds("e"),
         activityIdGenerator: sequentialIds("act"),
       });
-      const created = await entities.create({ type: "task", title: "T" });
+      const created = await entities.create({ type: "widget", title: "T" });
       await entities.softDelete(created.id); // one entity.deleted
       const afterDelete = await countActivities();
 

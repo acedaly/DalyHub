@@ -337,10 +337,18 @@ sibling).
 
 The registry exposes the typed seams these will consume, but does not build them:
 navigation, app shell, command-palette UI, global-search UI, settings UI or
-persistence, route guards, authentication, real product modules or the
-[FND-07](../roadmap/ROADMAP_V2.md#-fnd-07--area--goal--project--task-hierarchy)
-spine types, search indexing, D1 migrations, and any dynamic/third-party/remote
-module loading. Those arrive in later roadmap items.
+persistence, route guards, authentication, search indexing, D1 migrations, and any
+dynamic/third-party/remote module loading. Those arrive in later roadmap items.
+
+> **Update (FND-07).** The four spine modules —
+> [`areas`, `goals`, `projects`, `tasks`](SPINE_MODEL.md) — now exist as real,
+> side-effect-free manifests under `app/modules/`, discovered automatically. They
+> register only metadata (entity types, the structural EntityLink types, and the
+> completion Activity types) — **no** routes, commands, settings or search
+> providers. Hierarchy correctness itself lives in the shared spine kernel and the
+> `SpineRepository`, not in these manifests (see
+> [`SPINE_MODEL.md`](SPINE_MODEL.md) and
+> [ADR-014](../decisions/ARCHITECTURE_DECISIONS.md#adr-014-spine-hierarchy-completion-and-rollup-semantics)).
 
 ---
 

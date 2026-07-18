@@ -139,6 +139,9 @@ describe("migration 0003 — entity_links schema", () => {
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'entity_links' AND name NOT LIKE 'sqlite_%'",
     ).all<{ name: string }>();
+    // Migration 0003 creates the identity index and the four access-path indexes;
+    // migration 0005 (FND-07) adds `entity_links_one_active_parent_idx`, the
+    // partial UNIQUE index enforcing at most one active structural parent per child.
     expect(results.map((r) => r.name).sort()).toEqual(
       [
         "entity_links_identity_idx",
@@ -146,6 +149,7 @@ describe("migration 0003 — entity_links schema", () => {
         "entity_links_active_target_idx",
         "entity_links_active_source_type_idx",
         "entity_links_active_target_type_idx",
+        "entity_links_one_active_parent_idx",
       ].sort(),
     );
   });

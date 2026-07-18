@@ -15,6 +15,7 @@
 import type { ActivityRepository } from "~/kernel/activity";
 import type { EntityRepository } from "~/kernel/entities";
 import type { EntityLinkRepository } from "~/kernel/entity-links";
+import type { SpineRepository } from "~/kernel/spine";
 import type {
   WorkspaceContext,
   WorkspaceRepository,
@@ -30,12 +31,21 @@ import {
   type D1EntityLinkRepositoryOptions,
 } from "./d1-entity-link-repository";
 import {
+  D1SpineRepository,
+  type D1SpineRepositoryOptions,
+} from "./d1-spine-repository";
+import {
   D1WorkspaceRepository,
   type D1WorkspaceRepositoryOptions,
 } from "./d1-workspace-repository";
 
 export { D1EntityRepository, type D1EntityRepositoryOptions };
 export { D1EntityLinkRepository, type D1EntityLinkRepositoryOptions };
+export {
+  D1SpineRepository,
+  type D1SpineRepositoryOptions,
+  type SpineCreateFault,
+} from "./d1-spine-repository";
 export { D1ActivityRepository };
 export { D1WorkspaceRepository, type D1WorkspaceRepositoryOptions };
 export { D1ActivityRecorder } from "./d1-activity-recorder";
@@ -46,6 +56,7 @@ export {
 } from "./d1-atomic-mutation";
 export type { EntityRow } from "./database";
 export type { EntityLinkRow } from "./entity-link-database";
+export type { SpineStateRow, SpineJoinedRow } from "./spine-database";
 export type { ActivityRow, ActivitySubjectRow } from "./activity-database";
 export type { WorkspaceRow } from "./workspace-database";
 
@@ -75,6 +86,20 @@ export function createEntityLinkRepository(
   options?: D1EntityLinkRepositoryOptions,
 ): EntityLinkRepository {
   return new D1EntityLinkRepository(db, context, options);
+}
+
+/**
+ * Factory for the workspace-scoped D1-backed SpineRepository — the authoritative
+ * Area → Goal → Project → Task domain repository (FND-07 / ADR-014). Like the
+ * other mutation repositories it is bound to a `WorkspaceContext` and a trusted
+ * Activity actor; there is no way to construct one without a context.
+ */
+export function createSpineRepository(
+  db: D1Database,
+  context: WorkspaceContext,
+  options?: D1SpineRepositoryOptions,
+): SpineRepository {
+  return new D1SpineRepository(db, context, options);
 }
 
 /**

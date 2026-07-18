@@ -4,8 +4,10 @@ import {
   createActivityRepository,
   createEntityLinkRepository,
   createEntityRepository,
+  createSpineRepository,
   createWorkspaceRepository,
   type AtomicMutationFault,
+  type D1SpineRepositoryOptions,
 } from "~/platform/storage/d1";
 import type { ActivityActorContext } from "~/kernel/activity";
 import type { Clock, IdGenerator } from "~/kernel/entities";
@@ -92,6 +94,26 @@ export function makeActivityRepository(context: WorkspaceContext) {
   return createActivityRepository(env.DB, context);
 }
 
+/**
+ * Construct a workspace-scoped D1-backed SpineRepository over the isolated test
+ * database (FND-07: the authoritative Area → Goal → Project → Task repository,
+ * bound to a `WorkspaceContext`).
+ */
+export function makeSpineRepository(
+  context: WorkspaceContext,
+  options?: D1SpineRepositoryOptions,
+) {
+  return createSpineRepository(env.DB, context, options);
+}
+
+/** Count all rows in `spine_records` directly. */
+export async function countSpineRows(): Promise<number> {
+  const row = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM spine_records",
+  ).first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
 /** Construct the low-level workspace repository over the isolated test database. */
 export function makeWorkspaceRepository(options?: {
   clock?: Clock;
@@ -117,7 +139,7 @@ export async function seedEntity(
   workspaceId: string,
   id: string,
   {
-    type = "task",
+    type = "widget",
     title = id,
     at = "2026-07-17T00:00:00.000Z",
     deletedAt = null as string | null,
@@ -204,6 +226,7 @@ export async function resetTables(workspaceIds: string[] = []): Promise<void> {
   await env.DB.prepare("DELETE FROM activity_subjects").run();
   await env.DB.prepare("DELETE FROM activities").run();
   await env.DB.prepare("DELETE FROM entity_links").run();
+  await env.DB.prepare("DELETE FROM spine_records").run();
   await env.DB.prepare("DELETE FROM entities").run();
   await env.DB.prepare("DELETE FROM workspaces").run();
   for (const id of workspaceIds) {

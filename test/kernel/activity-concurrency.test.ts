@@ -29,7 +29,7 @@ describe("Activity recording under concurrency (real D1 races)", () => {
   });
 
   it("concurrent entity delete produces exactly one entity.deleted event", async () => {
-    const e = await entities.create({ type: "task", title: "T" });
+    const e = await entities.create({ type: "widget", title: "T" });
     const results = await Promise.all(
       Array.from({ length: 8 }, () => entities.softDelete(e.id)),
     );
@@ -41,7 +41,7 @@ describe("Activity recording under concurrency (real D1 races)", () => {
   });
 
   it("concurrent entity restore produces exactly one entity.restored event", async () => {
-    const e = await entities.create({ type: "task", title: "T" });
+    const e = await entities.create({ type: "widget", title: "T" });
     await entities.softDelete(e.id);
     const results = await Promise.all(
       Array.from({ length: 8 }, () => entities.restore(e.id)),
@@ -52,7 +52,7 @@ describe("Activity recording under concurrency (real D1 races)", () => {
 
   it("concurrent identical link create produces one link, one id, one created event", async () => {
     const a = await entities.create({ type: "meeting", title: "A" });
-    const b = await entities.create({ type: "task", title: "B" });
+    const b = await entities.create({ type: "widget", title: "B" });
     const input = {
       sourceEntityId: a.id,
       targetEntityId: b.id,
@@ -69,7 +69,7 @@ describe("Activity recording under concurrency (real D1 races)", () => {
 
   it("concurrent unlink produces exactly one entity_link.unlinked event", async () => {
     const a = await entities.create({ type: "meeting", title: "A" });
-    const b = await entities.create({ type: "task", title: "B" });
+    const b = await entities.create({ type: "widget", title: "B" });
     const { link } = await links.create({
       sourceEntityId: a.id,
       targetEntityId: b.id,
@@ -84,7 +84,7 @@ describe("Activity recording under concurrency (real D1 races)", () => {
 
   it("concurrent restore and concurrent create-after-unlink each produce one restored event", async () => {
     const a = await entities.create({ type: "meeting", title: "A" });
-    const b = await entities.create({ type: "task", title: "B" });
+    const b = await entities.create({ type: "widget", title: "B" });
     const input = {
       sourceEntityId: a.id,
       targetEntityId: b.id,
@@ -116,7 +116,7 @@ describe("Activity recording under concurrency (real D1 races)", () => {
   });
 
   it("all concurrent callers receive documented outcomes with no unexpected errors", async () => {
-    const e = await entities.create({ type: "task", title: "T" });
+    const e = await entities.create({ type: "widget", title: "T" });
     const results = await Promise.allSettled(
       Array.from({ length: 8 }, () => entities.softDelete(e.id)),
     );

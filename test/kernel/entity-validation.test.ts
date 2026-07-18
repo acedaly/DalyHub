@@ -50,7 +50,7 @@ describe("validateWorkspaceId / validateId", () => {
 
 describe("validateEntityType", () => {
   it("accepts simple and dotted identifiers", () => {
-    expect(validateEntityType("task")).toBe("task");
+    expect(validateEntityType("widget")).toBe("widget");
     expect(validateEntityType("meeting.follow_up")).toBe("meeting.follow_up");
     expect(validateEntityType("note2")).toBe("note2");
   });
@@ -145,7 +145,7 @@ describe("validateOptionalType", () => {
   });
 
   it("validates a provided type", () => {
-    expect(validateOptionalType("project")).toBe("project");
+    expect(validateOptionalType("gadget")).toBe("gadget");
     expect(() => validateOptionalType("Bad Type")).toThrow(
       EntityValidationError,
     );
@@ -158,14 +158,14 @@ describe("validateCreateInput", () => {
     // repository's bound context, not the caller.
     expect(
       validateCreateInput({
-        type: "task",
+        type: "widget",
         title: "  Buy milk  ",
       }),
-    ).toEqual({ type: "task", title: "Buy milk" });
+    ).toEqual({ type: "widget", title: "Buy milk" });
   });
 
   it("fails if any single field is invalid", () => {
-    expect(() => validateCreateInput({ type: "task", title: "  " })).toThrow(
+    expect(() => validateCreateInput({ type: "widget", title: "  " })).toThrow(
       EntityValidationError,
     );
   });

@@ -71,6 +71,8 @@ describe("migration 0002 → 0003 (existing-data preservation & new schema)", ()
     const { results } = await DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'entity_links' AND name NOT LIKE 'sqlite_%'",
     ).all<{ name: string }>();
+    // The sequential apply runs every committed migration, so the fully-migrated
+    // DB also carries the FND-07 (0005) one-active-parent partial unique index.
     expect(results.map((r) => r.name).sort()).toEqual(
       [
         "entity_links_identity_idx",
@@ -78,6 +80,7 @@ describe("migration 0002 → 0003 (existing-data preservation & new schema)", ()
         "entity_links_active_target_idx",
         "entity_links_active_source_type_idx",
         "entity_links_active_target_type_idx",
+        "entity_links_one_active_parent_idx",
       ].sort(),
     );
   });

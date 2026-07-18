@@ -29,9 +29,11 @@ import {
   type ActivityActorContext,
   type NewActivityEvent,
 } from "~/kernel/activity";
+import { RESERVED_SPINE_ENTITY_TYPES } from "~/kernel/spine";
 import {
   EntityError,
   EntityNotFoundError,
+  ReservedEntityTypeError,
   EntityStorageError,
   type CreateEntityInput,
   type EntityPage,
@@ -136,6 +138,11 @@ export class D1EntityRepository implements EntityRepository {
     input: CreateEntityInput<TType>,
   ): Promise<EntityRecord<TType>> {
     const { type, title } = validateCreateInput(input);
+    // The four spine types are reserved for the SpineRepository, which enforces
+    // load-bearing hierarchy invariants a bare `create` would bypass (ADR-014 §4.7).
+    if (RESERVED_SPINE_ENTITY_TYPES.has(type)) {
+      throw new ReservedEntityTypeError();
+    }
     const now = this.#clock();
     const nowTs = toStorageTimestamp(now);
     const id = this.#newId();
@@ -193,6 +200,9 @@ export class D1EntityRepository implements EntityRepository {
     let existing = await this.#findLive(entityId);
     if (!existing) {
       throw new EntityNotFoundError();
+    }
+    if (RESERVED_SPINE_ENTITY_TYPES.has(existing.type)) {
+      throw new ReservedEntityTypeError();
     }
 
     // Optimistic concurrency: the UPDATE is guarded on the `before` title, so a
@@ -311,6 +321,9 @@ export class D1EntityRepository implements EntityRepository {
     if (!existing) {
       throw new EntityNotFoundError();
     }
+    if (RESERVED_SPINE_ENTITY_TYPES.has(existing.type)) {
+      throw new ReservedEntityTypeError();
+    }
     if (existing.deleted_at !== null) {
       // Idempotent no-op: already deleted → NO Activity event, no timestamp churn.
       return {
@@ -365,6 +378,9 @@ export class D1EntityRepository implements EntityRepository {
     const existing = await this.#findAny(entityId);
     if (!existing) {
       throw new EntityNotFoundError();
+    }
+    if (RESERVED_SPINE_ENTITY_TYPES.has(existing.type)) {
+      throw new ReservedEntityTypeError();
     }
     if (existing.deleted_at === null) {
       // Idempotent no-op: already active → NO Activity event, no timestamp churn.

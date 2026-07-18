@@ -29,11 +29,13 @@ import {
   type ActivityActorContext,
   type NewActivityEvent,
 } from "~/kernel/activity";
+import { RESERVED_SPINE_LINK_TYPES } from "~/kernel/spine";
 import {
   EntityLinkConflictError,
   EntityLinkEndpointNotFoundError,
   EntityLinkError,
   EntityLinkNotFoundError,
+  EntityLinkReservedTypeError,
   EntityLinkStorageError,
   secureIdGenerator,
   systemClock,
@@ -179,6 +181,11 @@ export class D1EntityLinkRepository implements EntityLinkRepository {
     // 1-2. Validate all inputs and reject self-links BEFORE any storage access.
     const { sourceEntityId, targetEntityId, type } =
       validateCreateEntityLinkInput(input);
+    // The five structural spine link types are reserved for the SpineRepository,
+    // which alone enforces the exactly-one-active-parent invariant (ADR-014 §4.7).
+    if (RESERVED_SPINE_LINK_TYPES.has(type)) {
+      throw new EntityLinkReservedTypeError();
+    }
 
     // 3-4. Both endpoints must exist, be active, and be in the bound workspace.
     // Re-asserted atomically in the INSERT (below), so a concurrent soft-delete
@@ -363,6 +370,9 @@ export class D1EntityLinkRepository implements EntityLinkRepository {
     if (!existing) {
       throw new EntityLinkNotFoundError();
     }
+    if (RESERVED_SPINE_LINK_TYPES.has(existing.type)) {
+      throw new EntityLinkReservedTypeError();
+    }
     if (existing.deleted_at !== null) {
       // Idempotent no-op: already unlinked → NO event, no timestamp churn.
       return {
@@ -414,6 +424,9 @@ export class D1EntityLinkRepository implements EntityLinkRepository {
     const existing = await this.#findById(linkId);
     if (!existing) {
       throw new EntityLinkNotFoundError();
+    }
+    if (RESERVED_SPINE_LINK_TYPES.has(existing.type)) {
+      throw new EntityLinkReservedTypeError();
     }
     if (existing.deleted_at === null) {
       // Idempotent no-op: already active → NO event, no endpoint requirement.

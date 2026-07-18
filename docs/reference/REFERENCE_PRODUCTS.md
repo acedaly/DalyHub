@@ -201,6 +201,20 @@
 
 ---
 
+## Spine / hierarchy evaluation (FND-07)
+
+> The build-vs-reuse evaluation behind [ADR-014](../decisions/ARCHITECTURE_DECISIONS.md#adr-014-spine-hierarchy-completion-and-rollup-semantics). **No new runtime or dev dependency was added** — the spine is a kernel domain model + D1 adapter implemented entirely with existing TypeScript, D1 and Workers/Vitest tooling, composing the FND-02/04/05 kernels. Candidates considered and rejected:
+
+- **A tree / hierarchy / closure-table library (or `ltree`, nested-set, materialised-path packages).** Considered for storing and querying the parent/child tree. **Rejected — build on EntityLinks:** the spine is fixed-depth (four levels) and personal-scale; parentage is already the cross-spine relationship the EntityLink primitive exists for ([ADR-011](../decisions/ARCHITECTURE_DECISIONS.md#adr-011-entitylink-persistence-and-lifecycle)). A general graph/tree engine would be far more than a fixed four-level hierarchy needs, and the exactly-one-parent rule is enforced by a single partial unique index. Deep/unbounded traversal is explicitly out of scope.
+- **An ORM / query-builder for the spine tables, joins and rollups.** Already rejected for FND-02–05; the creation batches, gated inserts and rollup aggregates are small, inspectable prepared SQL, consistent with [ADR-009](../decisions/ARCHITECTURE_DECISIONS.md#adr-009-data-kernel-storage). **Rejected — build.**
+- **A workflow / state-machine library for completion.** Considered for the incomplete↔complete lifecycle. **Rejected — build:** completion is a single nullable `completedAt` timestamp with idempotent transitions; a state-machine dependency would dwarf the model FND-07 deliberately keeps minimal.
+- **A materialised-view / caching layer for progress rollups.** Considered for "fast progress". **Rejected — derive:** rollups are computed from current active descendants with a small, fixed number of bounded queries; a cache would add a drift/invalidation hazard the fixed-depth, personal-scale hierarchy does not warrant ([ADR-014 §rollups](../decisions/ARCHITECTURE_DECISIONS.md#adr-014-spine-hierarchy-completion-and-rollup-semantics)).
+- **A UUID package / cursor signing library.** **Rejected — reuse the platform** (same reasoning as FND-02–06): Workers-native `crypto.randomUUID()` for ids, and a dedicated versioned, scope-bound cursor treated as untrusted input with every value bound in SQL.
+
+**Decision (Depend / Adapt / Build).** **Build** the spine kernel (identifiers, record/rollup contracts, validation, cursor, repository interface), the D1 adapter, migration `0005`, the reserved-type guards and the four module manifests with existing tooling; **add no dependency**. Atomicity uses the platform's own `D1Database.batch()` and the shared `D1ActivityRecorder`. See [ADR-014](../decisions/ARCHITECTURE_DECISIONS.md#adr-014-spine-hierarchy-completion-and-rollup-semantics).
+
+---
+
 ## Entry template
 
 Copy this to add a new reference product or building block:

@@ -78,6 +78,11 @@
 - **Desired future state.** One [Markdown pipeline](../decisions/ARCHITECTURE_DECISIONS.md#adr-006-markdown-strategy) with a single sanitising renderer.
 - **Related roadmap item.** [FND-08](../roadmap/ROADMAP_V2.md#-fnd-08--markdown-pipeline).
 
+### ☐ DEBT-13 — Reserved-spine-type guard lives in the D1 adapter — P3
+- **Current issue.** The FND-07 reservation that stops the generic Entity/EntityLink repositories from mutating spine types/links ([ADR-014](../decisions/ARCHITECTURE_DECISIONS.md#adr-014-spine-hierarchy-completion-and-rollup-semantics)) is enforced inside the D1 adapters (`d1-entity-repository`, `d1-entity-link-repository`) against a shared kernel identifier set. D1 is the only adapter today, but a second storage adapter would have to replicate the guard to stay safe.
+- **Desired future state.** If a second adapter is ever added, lift the reserved-mutation check to a shared, storage-independent layer (e.g. a small guarded base or a kernel-level decorator) so no adapter can forget it — without coupling generic persistence to a mutable registry.
+- **Related roadmap item.** [FND-07](../roadmap/ROADMAP_V2.md#-fnd-07--area--goal--project--task-hierarchy) (revisit when a non-D1 adapter is proposed).
+
 ---
 
 ## Entry template

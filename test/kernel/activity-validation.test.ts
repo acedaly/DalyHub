@@ -138,7 +138,7 @@ describe("Subject validation", () => {
 describe("Payload validation", () => {
   it("accepts a valid nested JSON object payload", () => {
     const payload = {
-      entityType: "task",
+      entityType: "widget",
       title: "Do it",
       changes: { title: { before: "a", after: "b" } },
       tags: ["x", "y", 1, true, null],

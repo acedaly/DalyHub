@@ -31,7 +31,7 @@ describe("resolveWorkspaceScope (composition boundary)", () => {
     expect(context.workspaceId).toBe(id);
 
     // The entity repository is bound to the resolved workspace.
-    const created = await entities.create({ type: "task", title: "scoped" });
+    const created = await entities.create({ type: "widget", title: "scoped" });
     expect(created.workspaceId).toBe(id);
     expect((await entities.getById(created.id))?.title).toBe("scoped");
   });
@@ -53,7 +53,7 @@ describe("resolveWorkspaceScope (composition boundary)", () => {
       });
       expect(context.workspaceId).toBe(legacy);
 
-      const created = await entities.create({ type: "task", title: legacy });
+      const created = await entities.create({ type: "widget", title: legacy });
       expect(created.workspaceId).toBe(legacy);
       const listed = await entities.list();
       expect(listed.items.map((e) => e.workspaceId)).toEqual([legacy]);
@@ -85,7 +85,10 @@ describe("resolveWorkspaceScope (composition boundary)", () => {
       DEFAULT_WORKSPACE_ID: wsB,
     });
 
-    const created = await a.entities.create({ type: "task", title: "a-only" });
+    const created = await a.entities.create({
+      type: "widget",
+      title: "a-only",
+    });
     expect(await b.entities.getById(created.id)).toBeNull();
     await expect(b.entities.update(created.id, { title: "x" })).rejects.toThrow(
       EntityNotFoundError,
@@ -106,7 +109,7 @@ describe("resolveWorkspaceScope (composition boundary)", () => {
     // A mutation through the composed entity repository records an Activity event
     // readable through the composed (same-workspace) Activity repository, carrying
     // the trusted system actor established at the boundary.
-    const created = await entities.create({ type: "task", title: "scoped" });
+    const created = await entities.create({ type: "widget", title: "scoped" });
     const feed = await activity.listForWorkspace();
     expect(feed.items).toHaveLength(1);
     expect(feed.items[0]!.type).toBe("entity.created");

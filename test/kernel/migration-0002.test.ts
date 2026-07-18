@@ -15,7 +15,7 @@ const SEED = [
   {
     id: "e1",
     ws: "ws_one",
-    type: "task",
+    type: "widget",
     title: "One-A",
     created: "2026-07-17T00:00:01.000Z",
     updated: "2026-07-17T00:00:01.000Z",
@@ -33,7 +33,7 @@ const SEED = [
   {
     id: "e3",
     ws: "ws_two",
-    type: "task",
+    type: "widget",
     title: "Two-A",
     created: "2026-07-17T00:00:03.000Z",
     updated: "2026-07-17T00:00:03.000Z",
@@ -42,7 +42,7 @@ const SEED = [
   {
     id: "e4",
     ws: "ws_three",
-    type: "project",
+    type: "gadget",
     title: "Three-A",
     created: "2026-07-17T00:00:04.000Z",
     updated: "2026-07-17T00:00:04.000Z",

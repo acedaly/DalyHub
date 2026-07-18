@@ -65,8 +65,10 @@ describe("migration 0001 — entities schema", () => {
     const indexes = results.map((r) => r.name).sort();
     // Migration 0001 creates the four access-path indexes; migration 0003 later
     // adds the `entities_workspace_id_key` UNIQUE parent key (referenced by the
-    // entity_links composite foreign keys). On the fully-migrated database all
-    // five are present.
+    // entity_links composite foreign keys); migration 0005 adds the
+    // `entities_workspace_id_type_key` UNIQUE key (referenced by the spine_records
+    // composite foreign key, so a spine kind must match its entity type). On the
+    // fully-migrated database all six are present.
     expect(indexes).toEqual(
       [
         "entities_active_workspace_created_idx",
@@ -74,6 +76,7 @@ describe("migration 0001 — entities schema", () => {
         "entities_workspace_created_idx",
         "entities_workspace_type_created_idx",
         "entities_workspace_id_key",
+        "entities_workspace_id_type_key",
       ].sort(),
     );
   });
@@ -98,8 +101,10 @@ describe("migration 0001 — entities schema", () => {
     // Migration 0002 rebuilds `entities`; its four access-path indexes must be
     // recreated, not lost (also asserted in migration-0002.test.ts). Migration
     // 0003 then adds the `entities_workspace_id_key` UNIQUE parent key that the
-    // entity_links composite foreign keys reference — so on the fully-migrated
-    // database exactly these five indexes exist.
+    // entity_links composite foreign keys reference, and migration 0005 adds the
+    // `entities_workspace_id_type_key` UNIQUE key the spine_records composite
+    // foreign key references — so on the fully-migrated database exactly these six
+    // indexes exist.
     const { results } = await env.DB.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'entities' AND name NOT LIKE 'sqlite_%'",
     ).all<{ name: string }>();
@@ -110,6 +115,7 @@ describe("migration 0001 — entities schema", () => {
         "entities_workspace_created_idx",
         "entities_workspace_type_created_idx",
         "entities_workspace_id_key",
+        "entities_workspace_id_type_key",
       ].sort(),
     );
   });

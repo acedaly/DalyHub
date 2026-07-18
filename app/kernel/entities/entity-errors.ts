@@ -11,7 +11,12 @@
 
 /** Discriminator so callers can branch on error kind without `instanceof`. */
 export type EntityErrorCode =
-  "validation" | "not_found" | "invalid_cursor" | "invalid_state" | "storage";
+  | "validation"
+  | "not_found"
+  | "invalid_cursor"
+  | "invalid_state"
+  | "reserved"
+  | "storage";
 
 /** Base class for every kernel entity error. */
 export abstract class EntityError extends Error {
@@ -61,6 +66,24 @@ export class InvalidStateTransitionError extends EntityError {
   readonly code = "invalid_state" as const;
 
   constructor(message: string) {
+    super(message);
+  }
+}
+
+/**
+ * A generic mutation was attempted against an entity type reserved for a domain
+ * repository (FND-07 spine types: `area`, `goal`, `project`, `task`). Reads and
+ * lists of these records remain available; only create, update, soft-delete and
+ * restore are refused here — those must go through the SpineRepository so its
+ * load-bearing hierarchy invariants cannot be bypassed (ADR-014 §4.7, §17). The
+ * message names no other workspace's data and leaks no storage internals.
+ */
+export class ReservedEntityTypeError extends EntityError {
+  readonly code = "reserved" as const;
+
+  constructor(
+    message = "This entity type is reserved for its domain repository",
+  ) {
     super(message);
   }
 }

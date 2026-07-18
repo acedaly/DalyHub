@@ -81,11 +81,42 @@ describe("module discovery", () => {
   describe("the production discovery surface (app/modules/discover-modules)", () => {
     // Importing the real discovery module forces Vite (via vitest) to transform
     // the SAME `import.meta.glob("./*/module.ts")` the production build uses,
-    // proving the mechanism works under the actual toolchain. There are no
-    // product modules yet, so it resolves to an empty, valid registry.
-    it("transforms the production glob and yields an empty registry", () => {
-      expect(discoverModuleDefinitions()).toEqual([]);
-      expect(discoverModuleRegistry().listModules()).toEqual([]);
+    // proving the mechanism works under the actual toolchain. FND-07 adds the
+    // four spine module manifests, so it now resolves to exactly those four —
+    // discovered automatically, with NO central module array to edit.
+    it("transforms the production glob and discovers the four spine modules", () => {
+      expect(
+        discoverModuleDefinitions()
+          .map((d) => d.id)
+          .sort(),
+      ).toEqual(["areas", "goals", "projects", "tasks"]);
+    });
+
+    it("assembles a valid registry with the spine capability metadata", () => {
+      const registry = discoverModuleRegistry();
+      expect(registry.listModules().map((m) => m.id)).toEqual([
+        "areas",
+        "goals",
+        "projects",
+        "tasks",
+      ]);
+      // Entity types are owned by exactly one module each.
+      expect(registry.getEntityType("area")?.moduleId).toBe("areas");
+      expect(registry.getEntityType("goal")?.moduleId).toBe("goals");
+      expect(registry.getEntityType("project")?.moduleId).toBe("projects");
+      expect(registry.getEntityType("task")?.moduleId).toBe("tasks");
+      // Structural link + completion activity metadata is registered.
+      expect(
+        registry.getEntityLinkType("task.belongs_to_project")?.moduleId,
+      ).toBe("tasks");
+      expect(registry.getActivityType("project.completed")?.moduleId).toBe(
+        "projects",
+      );
+      // No routes, commands, settings or search providers are introduced.
+      expect(registry.listRoutes()).toEqual([]);
+      expect(registry.listCommands()).toEqual([]);
+      expect(registry.listSettings()).toEqual([]);
+      expect(registry.listSearchProviders()).toEqual([]);
     });
   });
 });
