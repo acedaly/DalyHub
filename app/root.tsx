@@ -14,6 +14,7 @@ import {
   ScrollRestoration,
   useRouteLoaderData,
 } from "react-router";
+import type { Location } from "react-router";
 
 import type { Route } from "./+types/root";
 import {
@@ -26,6 +27,17 @@ export function loader({ request }: Route.LoaderArgs) {
   // The theme preference is not secret: it is safe to read here (this loader runs
   // for authenticated pages) purely from the request cookie.
   return { theme: readThemePreference(request.headers.get("Cookie")) };
+}
+
+/**
+ * Scroll restoration keyed by PATH, not by history entry. A DS-03 Drawer (and a
+ * DS-02 tab) is a query-only, same-document transition that must not move the
+ * underlying page; keying scroll to the pathname means opening/closing a drawer
+ * keeps one scroll position, while genuine page-to-page navigation still saves and
+ * restores scroll per route (ADR-018).
+ */
+function scrollRestorationKey(location: Location): string {
+  return location.pathname;
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -43,7 +55,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
-        <ScrollRestoration />
+        <ScrollRestoration getKey={scrollRestorationKey} />
         <Scripts />
       </body>
     </html>

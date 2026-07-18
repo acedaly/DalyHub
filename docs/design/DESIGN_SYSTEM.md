@@ -94,6 +94,7 @@ Each pattern below has: **Purpose**, **Anatomy**, **Behaviour**, and **Rules**. 
 **Anatomy.** A side sheet containing the full [Record Layout](#record-header) (header, summary, tabs, timeline, activity).
 **Behaviour.** Opens over the current view; the underlying context stays visible and is restored on close. Deep-linkable and stackable (a drawer can open another). `Esc` closes; browser/back respects the stack.
 **Rules.** The Drawer is the default way to open any record. It must never lose the user's place. Full-page record views exist only where genuinely warranted (e.g. long-form Note editing).
+**Realised by** the [Shared Drawer (DS-03)](#shared-drawer-ds-03) — the single, entity-agnostic implementation.
 
 ### Tabs
 **Purpose.** Organise a record's depth into predictable sections without overwhelming the summary.
@@ -234,6 +235,106 @@ The layout is a **container-query context** (`container-type: inline-size`), so 
 - ❌ Build a bespoke header/tab strip for a module, or restyle the layout with one-off CSS instead of extending tokens.
 - ❌ Encode meaning in colour alone (a red pill with no label), or use `RecordContent` error text without a recovery.
 - ❌ Bake entity-specific logic into the layout — it stays entity-agnostic; entity behaviour lives in the module.
+
+---
+
+## Shared Drawer (DS-03)
+
+The [Drawer](#drawer) pattern above is realised by ONE reusable, entity-agnostic overlay: the **Shared Drawer** ([DS-03](../roadmap/ROADMAP_V2.md#-ds-03--shared-drawer)), in [`app/shared/drawer`](../../app/shared/drawer). It opens any record over the current page without losing the user's place, is deep-linkable and stackable, and **hosts the [DS-02 Record Layout](#shared-record-layout-ds-02)** rather than inventing a second record presentation. It knows nothing about any entity, D1, workspaces or module routes — callers pass an opaque key and a render function. It builds entirely on [DS-01 tokens](#design-tokens-ds-01) (z-index, elevation, motion, colour, spacing) and is accepted in [ADR-018](../decisions/ARCHITECTURE_DECISIONS.md#adr-018-the-shared-drawer--url-driven-history-stacked-focus-isolated).
+
+### Purpose
+
+Open a record *in context* — click a task in Today and it slides in over the page, which stays visible and keeps its state. The Drawer is the **default** way to open any record; full-page record views exist only where genuinely warranted (e.g. long-form Note editing). It must never lose the user's place.
+
+### Public anatomy
+
+```
+DrawerProvider (mount once, wraps the page)   ← owns the URL stack, focus, inertness, scroll lock
+  ├ renderDrawer(entry) → { title, description?, children, size?, preventClose?, initialFocusRef? } | null
+  ├ <the page>                                 ← rendered inert while a drawer is open
+  └ DrawerStack (only while open)              ← viewport-fixed sibling; scrim + one panel per level
+       └ Drawer (per level)                    ← role=dialog, aria-modal on top only
+            ├ header: title (accessible name) + optional description + always-present Close
+            └ body: children  ← a DS-02 RecordLayout (scrolls independently)
+
+useDrawer() → { entries, depth, isOpen, topKey, openDrawer, replaceDrawer, closeDrawer, closeAll }
+DrawerTrigger drawerKey=…   ← a link that opens a key (shareable href + SPA open)
+DrawerClose                 ← an in-content close control
+```
+
+Internal panel/stack/focus-trap/scroll-lock/inert machinery is **not** exported — callers never manage focus traps, portals, history entries or z-index.
+
+### URL & deep-link model
+
+The open stack lives entirely in the URL as a repeated `drawer` search parameter, backmost first:
+
+```
+/projects?status=active&drawer=project%3Aalpha&drawer=goal%3Anorth-star
+```
+
+The rendered stack is a **pure function of the URL**, so refresh, a copied link and Back/Forward all restore the same state — Drawer state is never held in ephemeral location state that a refresh would drop. Keys are opaque, URL-safe tokens; the `<kind>:<id>` shape is a *consumer* convention, never parsed by the Drawer. Every transform preserves unrelated query parameters. A **direct deep link** to a drawer URL renders server-side and coherently even with no background-location state; an unknown key yields a built-in, accessible not-found panel rather than a blank overlay.
+
+### Stack model
+
+- Opening pushes **one** history entry; re-opening the current top is a no-op (never a duplicate level).
+- Each nested drawer gets its own history entry; levels are keyed by **stack depth _and_ record key**, so opening a higher drawer **never remounts** the ones beneath it (their selected tab, scroll position and local state survive), while **replacing** the record at a depth (same depth, new key) **does** remount that level — so record-local state and mount-only initial focus never leak from a replaced record into its replacement.
+- Only the **top** drawer is interactive; lower levels are `inert`. Stack order maps to z-index via DS-01 tokens.
+- A generous depth cap replaces further pushes with a top-replace to bound pathological loops without limiting normal use.
+
+### Desktop & mobile presentation
+
+- **Desktop/laptop:** a calm side sheet entering from the right; the underlying page stays visible behind a restrained scrim; width fits a full Record Layout (`default`, or `wide`); the top drawer is visually distinct from prior levels; the panel never forces the document wider.
+- **Narrow/mobile:** a full-height, (near-)full-width sheet that respects safe-area insets, is usable at 320px, and introduces no horizontal page overflow. The DS-02 actions and tab strip stay reachable.
+- **Motion:** quick, restrained enter using DS-01 duration/easing tokens; instant under `prefers-reduced-motion`. No animation is required to understand the Drawer.
+
+### Focus, background inertness & scroll
+
+- **Focus:** on open, focus moves into the drawer — an explicit `initialFocusRef`, else the close button, else the first control. Tab/Shift+Tab are trapped and wrap. On close, focus returns to the opener when it still exists, else a safe fallback (never lost to `<body>`).
+- **Background inertness:** while a modal drawer is open, everything outside the top panel — the underlying page *and* the app shell — is `inert`, so it is unreachable by keyboard or assistive tech. Nested drawers never expose the level beneath. The top drawer is a `role="dialog"` with `aria-modal`, an accessible name (its title) and an optional `aria-describedby` description; the close control always has an accessible name.
+- **Escape & history:** Escape and the close button close **only the top** level (unless `preventClose` is set). Closing is *provenance-aware* (ADR-018 §18.2): a level the Drawer itself opened closes with browser **Back** (so Forward restores it); a directly deep-linked, copied-link or refreshed level instead has **only its top drawer parameter removed in place**, preserving the pathname, hash and unrelated query parameters — so closing a shared drawer link never navigates you to a different page. Browser Back closes the top; Forward restores an opener-pushed level; navigating to another page exits the stack.
+- **Body scroll:** page scrolling is locked while open (the drawer body scrolls independently, with the header/close always reachable); the underlying scroll **position** is preserved by path-keyed `ScrollRestoration` (ADR-018 §18.6), so a drawer never moves the page.
+- State is never communicated by colour alone; focus uses the DS-01 focus ring; behaviour holds at 200% zoom.
+
+### Integrating a RecordLayout
+
+```tsx
+<DrawerProvider
+  renderDrawer={(entry) => {
+    const record = lookup(entry.key);          // caller maps key → data (or null)
+    if (!record) return null;                  // → graceful not-found panel
+    return {
+      title: record.title,                     // the dialog's accessible name
+      description: `${record.type} record`,
+      size: record.type === "note" ? "wide" : "default",
+      children: (
+        <RecordLayout title={record.title} headingLevel={3} typeLabel={record.type} …>
+          {/* related records open a stacked drawer */}
+          <DrawerTrigger drawerKey={`goal:${record.goalId}`}>Open goal</DrawerTrigger>
+        </RecordLayout>
+      ),
+    };
+  }}
+>
+  <Page />
+</DrawerProvider>
+
+// Anywhere inside the provider:
+const { openDrawer } = useDrawer();
+openDrawer(`task:${id}`);   // or <DrawerTrigger drawerKey={`task:${id}`}>…</DrawerTrigger>
+```
+
+### Correct vs incorrect usage
+
+- ✅ Mount **one** `DrawerProvider` per surface; open records by key with `useDrawer`/`DrawerTrigger`; host a `RecordLayout` as the drawer body.
+- ✅ Let the Drawer own focus, inertness, scroll-lock and history; return `null` from `renderDrawer` for unknown keys.
+- ✅ Use `size="wide"` only when a record genuinely needs it; use `preventClose` for unsaved-state guarding of the in-app affordances.
+- ❌ Build a bespoke modal/overlay, add a drawer/modal dependency, or duplicate the record scaffold inside a drawer.
+- ❌ Hold drawer state in component booleans or ephemeral location state (breaks refresh/deep links), or parse entity meaning out of the key.
+- ❌ Manage focus traps, portals, z-index or history entries by hand, or convey state by colour alone.
+
+### Extension rules
+
+Add a `size` variant, a stack-metadata field or a presentation option to the shared Drawer only when a real record needs it, and document it here — never fork the Drawer per module. Real product record routes (replacing the fixture's `<kind>:<id>` keys) arrive when a module first adopts the Drawer; DS-03 ships the mechanism and a development fixture only.
 
 ---
 
