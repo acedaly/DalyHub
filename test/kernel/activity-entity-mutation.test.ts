@@ -39,7 +39,10 @@ describe("Entity mutation Activity events", () => {
   });
 
   it("create appends one entity.created with a subject and rich payload", async () => {
-    const created = await entities.create({ type: "task", title: "Write it" });
+    const created = await entities.create({
+      type: "widget",
+      title: "Write it",
+    });
 
     expect(await countActivitiesOfType("entity.created")).toBe(1);
     const page = await activity.listForWorkspace();
@@ -47,13 +50,13 @@ describe("Entity mutation Activity events", () => {
     const event = page.items[0]!;
     expect(event.type).toBe("entity.created");
     expect(event.subjects).toEqual([{ entityId: created.id, role: "subject" }]);
-    expect(event.payload).toEqual({ entityType: "task", title: "Write it" });
+    expect(event.payload).toEqual({ entityType: "widget", title: "Write it" });
     // Mutation timestamp and event timestamp derive from the same clock call.
     expect(event.occurredAt).toEqual(created.createdAt);
   });
 
   it("update appends one entity.updated with accurate before/after title", async () => {
-    const created = await entities.create({ type: "task", title: "Old" });
+    const created = await entities.create({ type: "widget", title: "Old" });
     clock.advance(1000);
     const updated = await entities.update(created.id, { title: "New" });
 
@@ -68,7 +71,7 @@ describe("Entity mutation Activity events", () => {
   });
 
   it("a same-title update is a no-op: no event, no updatedAt churn", async () => {
-    const created = await entities.create({ type: "task", title: "Same" });
+    const created = await entities.create({ type: "widget", title: "Same" });
     clock.advance(5000);
     // Submitting the already-stored title (even with surrounding whitespace that
     // trims to the same value) changes nothing meaningful.
@@ -107,7 +110,7 @@ describe("Entity mutation Activity events", () => {
   });
 
   it("a failed (not-found / soft-deleted) update appends no event", async () => {
-    const created = await entities.create({ type: "task", title: "T" });
+    const created = await entities.create({ type: "widget", title: "T" });
     await entities.softDelete(created.id);
     const before = await countActivities();
 
@@ -126,7 +129,7 @@ describe("Entity mutation Activity events", () => {
 
   it("the event actor comes from the trusted composition context", async () => {
     // Default is the system actor.
-    const created = await entities.create({ type: "task", title: "sys" });
+    const created = await entities.create({ type: "widget", title: "sys" });
     const sysEvent = await activity.getById(
       (await activity.listForWorkspace()).items[0]!.id,
     );
@@ -140,7 +143,7 @@ describe("Entity mutation Activity events", () => {
       activityIdGenerator: sequentialIds("uact"),
       actorContext: createActivityActorContext({ type: "user", id: "user_7" }),
     });
-    const u = await asUser.create({ type: "task", title: "byuser" });
+    const u = await asUser.create({ type: "widget", title: "byuser" });
     const events = await activity.listForEntity(u.id);
     expect(events.items[0]!.actor).toEqual({ type: "user", id: "user_7" });
   });
@@ -151,7 +154,7 @@ describe("Entity mutation Activity events", () => {
       activityIdGenerator: () => "", // invalid: empty id
     });
     await expect(
-      broken.create({ type: "task", title: "nope" }),
+      broken.create({ type: "widget", title: "nope" }),
     ).rejects.toThrow();
     expect(await countRows()).toBe(0);
     expect(await countActivities()).toBe(0);

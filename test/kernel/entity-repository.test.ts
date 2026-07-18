@@ -55,7 +55,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
     it("persists an entity and returns the correct typed record", async () => {
       const r = repoA();
       const created = await r.create({
-        type: "task",
+        type: "widget",
         title: "  Buy milk  ",
       });
 
@@ -63,7 +63,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
       expect(created).toEqual({
         id: "id_0001",
         workspaceId: WS_A,
-        type: "task",
+        type: "widget",
         title: "Buy milk",
         createdAt: new Date("2026-07-17T00:00:00.000Z"),
         updatedAt: new Date("2026-07-17T00:00:00.000Z"),
@@ -76,7 +76,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
     });
 
     it("always assigns the repository's bound workspace, never another", async () => {
-      const created = await repoA().create({ type: "task", title: "mine" });
+      const created = await repoA().create({ type: "widget", title: "mine" });
       expect(created.workspaceId).toBe(WS_A);
     });
 
@@ -86,7 +86,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
       // error. At runtime the stray property is ignored and the bound workspace
       // is used — an attacker-supplied field can never redirect the scope.
       const created = await r.create({
-        type: "task",
+        type: "widget",
         title: "hijack?",
         // @ts-expect-error workspaceId is not part of the create contract
         workspaceId: WS_B,
@@ -98,8 +98,8 @@ describe("D1EntityRepository (workspace-scoped)", () => {
 
     it("generates a unique secure id by default", async () => {
       const r = makeRepository(CTX_A, { clock: clock.now });
-      const a = await r.create({ type: "task", title: "A" });
-      const b = await r.create({ type: "task", title: "B" });
+      const a = await r.create({ type: "widget", title: "A" });
+      const b = await r.create({ type: "widget", title: "B" });
       expect(a.id).not.toBe(b.id);
       expect(a.id).toMatch(
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
@@ -119,7 +119,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
     });
 
     it("workspace A cannot retrieve workspace B's entity (no existence disclosure)", async () => {
-      const created = await repoA().create({ type: "task", title: "secret" });
+      const created = await repoA().create({ type: "widget", title: "secret" });
       // Workspace B sees exactly what it would see for a non-existent id: null.
       // There is no signal that the entity exists elsewhere.
       expect(await repoB().getById(created.id)).toBeNull();
@@ -132,7 +132,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
   describe("update & cross-workspace isolation (scenarios 4, 6, 7)", () => {
     it("changes the title and advances updatedAt", async () => {
       const r = repoA();
-      const created = await r.create({ type: "task", title: "Before" });
+      const created = await r.create({ type: "widget", title: "Before" });
 
       clock.advance(60_000);
       const updated = await r.update(created.id, { title: "  After  " });
@@ -143,7 +143,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
 
     it("does not change identity or creation fields", async () => {
       const r = repoA();
-      const created = await r.create({ type: "task", title: "Before" });
+      const created = await r.create({ type: "widget", title: "Before" });
 
       clock.advance(60_000);
       const updated = await r.update(created.id, { title: "After" });
@@ -161,7 +161,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
     });
 
     it("workspace A cannot update workspace B's entity", async () => {
-      const created = await repoB().create({ type: "task", title: "T" });
+      const created = await repoB().create({ type: "widget", title: "T" });
       // Same generic not-found the caller would get for a truly missing id.
       await expect(
         repoA().update(created.id, { title: "hijacked" }),
@@ -172,7 +172,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
 
     it("rejects an invalid title without changing stored data", async () => {
       const r = repoA();
-      const created = await r.create({ type: "task", title: "Keep me" });
+      const created = await r.create({ type: "widget", title: "Keep me" });
       await expect(r.update(created.id, { title: "   " })).rejects.toThrow(
         EntityValidationError,
       );
@@ -183,7 +183,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
   describe("soft delete, restore & get (scenarios 5)", () => {
     it("soft delete sets deletedAt and advances updatedAt", async () => {
       const r = repoA();
-      const created = await r.create({ type: "task", title: "Doomed" });
+      const created = await r.create({ type: "widget", title: "Doomed" });
 
       clock.advance(5_000);
       const result = await r.softDelete(created.id);
@@ -200,7 +200,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
 
     it("ordinary get excludes a deleted entity but explicit lookup retrieves it", async () => {
       const r = repoA();
-      const created = await r.create({ type: "task", title: "Hidden" });
+      const created = await r.create({ type: "widget", title: "Hidden" });
       await r.softDelete(created.id);
 
       expect(await r.getById(created.id)).toBeNull();
@@ -212,7 +212,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
 
     it("restore makes a deleted entity visible again", async () => {
       const r = repoA();
-      const created = await r.create({ type: "task", title: "Back" });
+      const created = await r.create({ type: "widget", title: "Back" });
       await r.softDelete(created.id);
 
       clock.advance(10_000);
@@ -230,7 +230,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
 
     it("cannot update a soft-deleted entity", async () => {
       const r = repoA();
-      const created = await r.create({ type: "task", title: "Gone" });
+      const created = await r.create({ type: "widget", title: "Gone" });
       await r.softDelete(created.id);
       await expect(r.update(created.id, { title: "revive?" })).rejects.toThrow(
         EntityNotFoundError,
@@ -244,7 +244,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
     });
 
     it("workspace A cannot soft-delete or restore workspace B's entity", async () => {
-      const created = await repoB().create({ type: "task", title: "theirs" });
+      const created = await repoB().create({ type: "widget", title: "theirs" });
       await expect(repoA().softDelete(created.id)).rejects.toThrow(
         EntityNotFoundError,
       );
@@ -262,7 +262,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
   describe("repeated lifecycle operations", () => {
     it("re-deleting is an idempotent no-op that does not churn timestamps", async () => {
       const r = repoA();
-      const created = await r.create({ type: "task", title: "X" });
+      const created = await r.create({ type: "widget", title: "X" });
 
       clock.advance(1_000);
       const first = await r.softDelete(created.id);
@@ -278,7 +278,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
 
     it("re-restoring a live entity is an idempotent no-op", async () => {
       const r = repoA();
-      const created = await r.create({ type: "task", title: "Y" });
+      const created = await r.create({ type: "widget", title: "Y" });
 
       const result = await r.restore(created.id);
       expect(result.outcome).toBe("already_active");
@@ -288,7 +288,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
 
     it("supports delete → restore → delete cycles with defined outcomes", async () => {
       const r = repoA();
-      const created = await r.create({ type: "task", title: "Cycle" });
+      const created = await r.create({ type: "widget", title: "Cycle" });
 
       clock.advance(1_000);
       expect((await r.softDelete(created.id)).outcome).toBe("deleted");
@@ -305,8 +305,8 @@ describe("D1EntityRepository (workspace-scoped)", () => {
   describe("list — filtering, deletion & scoping (scenarios 7, 8, 9)", () => {
     it("excludes deleted records by default and lists them when asked (scoped)", async () => {
       const r = repoA();
-      const a = await r.create({ type: "task", title: "A" });
-      await r.create({ type: "task", title: "B" });
+      const a = await r.create({ type: "widget", title: "A" });
+      await r.create({ type: "widget", title: "B" });
       await r.softDelete(a.id);
 
       const active = await r.list();
@@ -318,18 +318,18 @@ describe("D1EntityRepository (workspace-scoped)", () => {
 
     it("filters by type (scoped)", async () => {
       const r = repoA();
-      await r.create({ type: "task", title: "T1" });
+      await r.create({ type: "widget", title: "T1" });
       await r.create({ type: "note", title: "N1" });
-      await r.create({ type: "task", title: "T2" });
+      await r.create({ type: "widget", title: "T2" });
 
-      const tasks = await r.list({ type: "task" });
+      const tasks = await r.list({ type: "widget" });
       expect(tasks.items.map((e) => e.title)).toEqual(["T1", "T2"]);
-      expect(tasks.items.every((e) => e.type === "task")).toBe(true);
+      expect(tasks.items.every((e) => e.type === "widget")).toBe(true);
     });
 
     it("a workspace list never returns another workspace's records", async () => {
-      await repoA().create({ type: "task", title: "mine" });
-      await repoB().create({ type: "task", title: "theirs" });
+      await repoA().create({ type: "widget", title: "mine" });
+      await repoB().create({ type: "widget", title: "theirs" });
 
       const listA = await repoA().list();
       expect(listA.items.map((e) => e.title)).toEqual(["mine"]);
@@ -339,7 +339,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
       expect(listB.items.map((e) => e.title)).toEqual(["theirs"]);
 
       // include-deleted stays scoped too.
-      const a = await repoA().create({ type: "task", title: "mine2" });
+      const a = await repoA().create({ type: "widget", title: "mine2" });
       await repoA().softDelete(a.id);
       const allB = await repoB().list({ includeDeleted: true });
       expect(allB.items.map((e) => e.title)).toEqual(["theirs"]);
@@ -359,7 +359,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
       for (let i = 0; i < count; i++) {
         clock.advance(1_000);
         await r.create({
-          type: "task",
+          type: "widget",
           title: `T${String(i).padStart(2, "0")}`,
         });
       }
@@ -412,7 +412,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
         idGenerator: sequentialIds(),
       });
       for (let i = 0; i < 6; i++) {
-        await r.create({ type: "task", title: `S${i}` });
+        await r.create({ type: "widget", title: `S${i}` });
       }
 
       const seen: string[] = [];
@@ -444,7 +444,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
     async function seedFor(
       repo: ReturnType<typeof repoA>,
       count: number,
-      type = "task",
+      type = "widget",
     ) {
       for (let i = 0; i < count; i++) {
         clock.advance(1_000);
@@ -467,10 +467,10 @@ describe("D1EntityRepository (workspace-scoped)", () => {
 
     it("rejects a cursor generated under a different type filter", async () => {
       const a = repoA();
-      await seedFor(a, 2, "task");
+      await seedFor(a, 2, "widget");
       await seedFor(a, 2, "note");
 
-      const taskPage = await a.list({ type: "task", limit: 1 });
+      const taskPage = await a.list({ type: "widget", limit: 1 });
       expect(taskPage.nextCursor).not.toBeNull();
 
       // Same workspace, different type filter → rejected.
@@ -498,10 +498,10 @@ describe("D1EntityRepository (workspace-scoped)", () => {
 
     it("accepts a cursor replayed under its own exact scope", async () => {
       const a = repoA();
-      await seedFor(a, 3, "task");
-      const first = await a.list({ type: "task", limit: 1 });
+      await seedFor(a, 3, "widget");
+      const first = await a.list({ type: "widget", limit: 1 });
       const second = await a.list({
-        type: "task",
+        type: "widget",
         limit: 1,
         cursor: first.nextCursor!,
       });
@@ -516,7 +516,7 @@ describe("D1EntityRepository (workspace-scoped)", () => {
       await expect(r.create({ type: "Bad Type!", title: "x" })).rejects.toThrow(
         EntityValidationError,
       );
-      await expect(r.create({ type: "task", title: "   " })).rejects.toThrow(
+      await expect(r.create({ type: "widget", title: "   " })).rejects.toThrow(
         EntityValidationError,
       );
 
@@ -532,11 +532,11 @@ describe("D1EntityRepository (workspace-scoped)", () => {
     it("stores SQL-like and special-character titles safely as ordinary values", async () => {
       const r = repoA();
       const nasty = 'Robert\'); DROP TABLE entities;-- 😀 "quotes" \\ %_';
-      const created = await r.create({ type: "task", title: nasty });
+      const created = await r.create({ type: "widget", title: nasty });
 
       expect((await r.getById(created.id))?.title).toBe(nasty);
       expect(await countRows()).toBe(1);
-      const stillThere = await r.create({ type: "task", title: "second" });
+      const stillThere = await r.create({ type: "widget", title: "second" });
       expect(stillThere.title).toBe("second");
     });
   });

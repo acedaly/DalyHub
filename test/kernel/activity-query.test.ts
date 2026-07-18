@@ -45,7 +45,7 @@ describe("Activity queries", () => {
   async function createN(n: number): Promise<string[]> {
     const ids: string[] = [];
     for (let i = 0; i < n; i++) {
-      const e = await entities.create({ type: "task", title: `T${i}` });
+      const e = await entities.create({ type: "widget", title: `T${i}` });
       ids.push(e.id);
       clock.advance(1000);
     }
@@ -63,7 +63,7 @@ describe("Activity queries", () => {
   it("uses the id as a deterministic tiebreaker for identical timestamps", async () => {
     // Do NOT advance the clock: all three events share one occurredAt.
     for (let i = 0; i < 3; i++) {
-      await entities.create({ type: "task", title: `T${i}` });
+      await entities.create({ type: "widget", title: `T${i}` });
     }
     const page = await activity.listForWorkspace();
     const ids = page.items.map((e) => e.id);
@@ -142,7 +142,7 @@ describe("Activity queries", () => {
     const otherEntities = makeRepository(CTX_OTHER, {
       idGenerator: sequentialIds("o"),
     });
-    const foreign = await otherEntities.create({ type: "task", title: "F" });
+    const foreign = await otherEntities.create({ type: "widget", title: "F" });
 
     // WS feed contains only WS events.
     const feed = await activity.listForWorkspace();

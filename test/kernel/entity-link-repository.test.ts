@@ -53,7 +53,7 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
   /** Create two active entities in workspace A and return their ids. */
   async function twoEntitiesA(): Promise<[string, string]> {
     const a = await entitiesA.create({ type: "meeting", title: "Standup" });
-    const b = await entitiesA.create({ type: "task", title: "Follow up" });
+    const b = await entitiesA.create({ type: "widget", title: "Follow up" });
     return [a.id, b.id];
   }
 
@@ -366,7 +366,7 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
   describe("bidirectional queries (scenarios 1-11)", () => {
     it("returns a link as outgoing from the source and incoming from the target — same id", async () => {
       const source = await entitiesA.create({ type: "meeting", title: "M" });
-      const target = await entitiesA.create({ type: "task", title: "T" });
+      const target = await entitiesA.create({ type: "widget", title: "T" });
       const { link } = await linksA.create({
         sourceEntityId: source.id,
         targetEntityId: target.id,
@@ -390,8 +390,8 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
     });
 
     it("returns both incoming and outgoing links in a both-direction query", async () => {
-      const hub = await entitiesA.create({ type: "project", title: "Hub" });
-      const out = await entitiesA.create({ type: "task", title: "Out" });
+      const hub = await entitiesA.create({ type: "gadget", title: "Hub" });
+      const out = await entitiesA.create({ type: "widget", title: "Out" });
       const inc = await entitiesA.create({ type: "note", title: "In" });
 
       const outgoing = await linksA.create({
@@ -413,8 +413,8 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
     });
 
     it("filters by direction", async () => {
-      const hub = await entitiesA.create({ type: "project", title: "Hub" });
-      const out = await entitiesA.create({ type: "task", title: "Out" });
+      const hub = await entitiesA.create({ type: "gadget", title: "Hub" });
+      const out = await entitiesA.create({ type: "widget", title: "Out" });
       const inc = await entitiesA.create({ type: "note", title: "In" });
       await linksA.create({
         sourceEntityId: hub.id,
@@ -440,7 +440,7 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
 
     it("filters by link type", async () => {
       const hub = await entitiesA.create({ type: "meeting", title: "Hub" });
-      const t1 = await entitiesA.create({ type: "task", title: "T1" });
+      const t1 = await entitiesA.create({ type: "widget", title: "T1" });
       const n1 = await entitiesA.create({ type: "note", title: "N1" });
       await linksA.create({
         sourceEntityId: hub.id,
@@ -461,7 +461,7 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
 
     it("excludes explicitly unlinked links", async () => {
       const source = await entitiesA.create({ type: "meeting", title: "M" });
-      const target = await entitiesA.create({ type: "task", title: "T" });
+      const target = await entitiesA.create({ type: "widget", title: "T" });
       const { link } = await linksA.create({
         sourceEntityId: source.id,
         targetEntityId: target.id,
@@ -474,8 +474,8 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
     });
 
     it("excludes links whose counterpart entity is soft-deleted", async () => {
-      const anchor = await entitiesA.create({ type: "project", title: "P" });
-      const other = await entitiesA.create({ type: "task", title: "T" });
+      const anchor = await entitiesA.create({ type: "gadget", title: "P" });
+      const other = await entitiesA.create({ type: "widget", title: "T" });
       await linksA.create({
         sourceEntityId: anchor.id,
         targetEntityId: other.id,
@@ -489,7 +489,7 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
 
     it("never surfaces another workspace's links and requires the anchor to be active", async () => {
       const source = await entitiesA.create({ type: "meeting", title: "M" });
-      const target = await entitiesA.create({ type: "task", title: "T" });
+      const target = await entitiesA.create({ type: "widget", title: "T" });
       await linksA.create({
         sourceEntityId: source.id,
         targetEntityId: target.id,
@@ -513,13 +513,13 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
     /** Seed `count` outgoing links from a fresh anchor, one per tick. */
     async function seedOutgoing(count: number): Promise<string> {
       const anchor = await entitiesA.create({
-        type: "project",
+        type: "gadget",
         title: "Anchor",
       });
       for (let i = 0; i < count; i++) {
         clock.advance(1_000);
         const other = await entitiesA.create({
-          type: "task",
+          type: "widget",
           title: `T${String(i).padStart(3, "0")}`,
         });
         await linksA.create({
@@ -574,11 +574,14 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
 
     it("orders deterministically by id when createdAt ties", async () => {
       // No clock advance between links → identical createdAt; id breaks the tie.
-      const anchor = (await entitiesA.create({ type: "project", title: "A" }))
+      const anchor = (await entitiesA.create({ type: "gadget", title: "A" }))
         .id;
       const ids: string[] = [];
       for (let i = 0; i < 6; i++) {
-        const other = await entitiesA.create({ type: "task", title: `S${i}` });
+        const other = await entitiesA.create({
+          type: "widget",
+          title: `S${i}`,
+        });
         const { link } = await linksA.create({
           sourceEntityId: anchor,
           targetEntityId: other.id,
@@ -606,10 +609,13 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
       count: number,
       type = "task.relates_to",
     ): Promise<string> {
-      const anchor = await entityRepo.create({ type: "project", title: "A" });
+      const anchor = await entityRepo.create({ type: "gadget", title: "A" });
       for (let i = 0; i < count; i++) {
         clock.advance(1_000);
-        const other = await entityRepo.create({ type: "task", title: `T${i}` });
+        const other = await entityRepo.create({
+          type: "widget",
+          title: `T${i}`,
+        });
         await repo.create({
           sourceEntityId: anchor.id,
           targetEntityId: other.id,
@@ -668,7 +674,10 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
         .id;
       for (let i = 0; i < 4; i++) {
         clock.advance(1_000);
-        const other = await entitiesA.create({ type: "task", title: `T${i}` });
+        const other = await entitiesA.create({
+          type: "widget",
+          title: `T${i}`,
+        });
         await linksA.create({
           sourceEntityId: anchor,
           targetEntityId: other.id,
@@ -766,11 +775,11 @@ describe("D1EntityLinkRepository (workspace-scoped)", () => {
         idGenerator: sequentialIds("lu"),
       });
 
-      const anchor = await seedEntity(WS_U, "锚点", { type: "project" });
+      const anchor = await seedEntity(WS_U, "锚点", { type: "gadget" });
       const targets: string[] = [];
       for (let i = 0; i < 5; i++) {
         clock.advance(1_000);
-        const t = await seedEntity(WS_U, `目标${i}`, { type: "task" });
+        const t = await seedEntity(WS_U, `目标${i}`, { type: "widget" });
         targets.push(t);
         await linksU.create({
           sourceEntityId: anchor,

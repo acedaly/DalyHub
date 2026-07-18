@@ -26,6 +26,7 @@ export {
   EntityNotFoundError,
   InvalidCursorError,
   InvalidStateTransitionError,
+  ReservedEntityTypeError,
   EntityStorageError,
   type EntityErrorCode,
   type EntityValidationField,

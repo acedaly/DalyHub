@@ -12,7 +12,7 @@ import {
 
 const SCOPE: CursorScope = {
   workspaceId: "ws_alpha",
-  type: "task",
+  type: "widget",
   includeDeleted: false,
 };
 
@@ -67,20 +67,20 @@ describe("cursor encode/decode (scoped, versioned)", () => {
 
   it("rejects a cursor with the wrong version", () => {
     const wrongVersion = btoa(
-      JSON.stringify([CURSOR_VERSION + 1, "ws", "task", 0, "t", "i"]),
+      JSON.stringify([CURSOR_VERSION + 1, "ws", "widget", 0, "t", "i"]),
     );
     expect(() => decodeCursor(wrongVersion)).toThrow(InvalidCursorError);
   });
 
   it("rejects cursors that decode to the wrong shape", () => {
     const wrongShapes = [
-      btoa(JSON.stringify([CURSOR_VERSION, "ws", "task", 0, "t"])), // too short
-      btoa(JSON.stringify([CURSOR_VERSION, "ws", "task", 0, "t", "i", "x"])), // too long
-      btoa(JSON.stringify([CURSOR_VERSION, "", "task", 0, "t", "i"])), // empty ws
+      btoa(JSON.stringify([CURSOR_VERSION, "ws", "widget", 0, "t"])), // too short
+      btoa(JSON.stringify([CURSOR_VERSION, "ws", "widget", 0, "t", "i", "x"])), // too long
+      btoa(JSON.stringify([CURSOR_VERSION, "", "widget", 0, "t", "i"])), // empty ws
       btoa(JSON.stringify([CURSOR_VERSION, "ws", 5, 0, "t", "i"])), // bad type
-      btoa(JSON.stringify([CURSOR_VERSION, "ws", "task", 2, "t", "i"])), // bad flag
-      btoa(JSON.stringify([CURSOR_VERSION, "ws", "task", 0, "", "i"])), // empty ts
-      btoa(JSON.stringify([CURSOR_VERSION, "ws", "task", 0, "t", ""])), // empty id
+      btoa(JSON.stringify([CURSOR_VERSION, "ws", "widget", 2, "t", "i"])), // bad flag
+      btoa(JSON.stringify([CURSOR_VERSION, "ws", "widget", 0, "", "i"])), // empty ts
+      btoa(JSON.stringify([CURSOR_VERSION, "ws", "widget", 0, "t", ""])), // empty id
       btoa(JSON.stringify({ version: CURSOR_VERSION })), // not an array
     ];
     for (const cursor of wrongShapes) {

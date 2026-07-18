@@ -25,7 +25,7 @@ describe("rowToEntity", () => {
   const baseRow: EntityRow = {
     id: "id_1",
     workspace_id: "ws_1",
-    type: "task",
+    type: "widget",
     title: "Buy milk",
     created_at: "2026-07-17T12:00:00.000Z",
     updated_at: "2026-07-17T12:30:00.000Z",
@@ -37,7 +37,7 @@ describe("rowToEntity", () => {
     expect(entity).toEqual({
       id: "id_1",
       workspaceId: "ws_1",
-      type: "task",
+      type: "widget",
       title: "Buy milk",
       createdAt: new Date("2026-07-17T12:00:00.000Z"),
       updatedAt: new Date("2026-07-17T12:30:00.000Z"),

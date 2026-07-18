@@ -17,7 +17,7 @@ describe("EntityLink validation (pure)", () => {
         "meeting.produced_task",
         "project.supporting_note",
         "person.attended_meeting",
-        "task",
+        "widget",
         "a.b.c.d",
       ]) {
         expect(parseEntityLinkType(t)).toBe(t);

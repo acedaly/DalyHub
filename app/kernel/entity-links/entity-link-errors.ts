@@ -21,6 +21,7 @@ export type EntityLinkErrorCode =
   | "not_found"
   | "invalid_cursor"
   | "invalid_state"
+  | "reserved"
   | "conflict"
   | "storage";
 
@@ -93,6 +94,23 @@ export class EntityLinkInvalidStateError extends EntityLinkError {
   readonly code = "invalid_state" as const;
 
   constructor(message: string) {
+    super(message);
+  }
+}
+
+/**
+ * A generic mutation was attempted against a structural link type reserved for a
+ * domain repository (FND-07 spine hierarchy links). Reads remain available; only
+ * create, unlink and restore of these link types are refused here — structural
+ * parentage must go through the SpineRepository so its hierarchy invariants
+ * cannot be bypassed (ADR-014 §4.7, §17). The message leaks no internals.
+ */
+export class EntityLinkReservedTypeError extends EntityLinkError {
+  readonly code = "reserved" as const;
+
+  constructor(
+    message = "This link type is reserved for its domain repository",
+  ) {
     super(message);
   }
 }

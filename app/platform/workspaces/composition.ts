@@ -22,6 +22,7 @@ import {
 } from "~/kernel/activity";
 import type { EntityRepository } from "~/kernel/entities";
 import type { EntityLinkRepository } from "~/kernel/entity-links";
+import type { SpineRepository } from "~/kernel/spine";
 import type {
   WorkspaceContext,
   WorkspaceContextResolver,
@@ -30,6 +31,7 @@ import {
   createActivityRepository,
   createEntityLinkRepository,
   createEntityRepository,
+  createSpineRepository,
   createWorkspaceRepository,
 } from "~/platform/storage/d1";
 
@@ -46,16 +48,19 @@ export interface WorkspaceScopeEnv {
 
 /**
  * A resolved workspace scope: the context plus every workspace-scoped repository,
- * all bound to the SAME `WorkspaceContext`. The entity, EntityLink and Activity
- * repositories are exposed here so module code obtains them through this single
- * seam rather than constructing scope itself. The `activity` repository is
- * READ-ONLY (FND-05 / ADR-012): events are appended only as the atomic side effect
- * of entity/link mutations, using the trusted actor established below.
+ * all bound to the SAME `WorkspaceContext`. The entity, EntityLink, spine and
+ * Activity repositories are exposed here so module code obtains them through this
+ * single seam rather than constructing scope itself. The `spine` repository is the
+ * authoritative Area → Goal → Project → Task domain repository (FND-07 / ADR-014),
+ * sharing the same trusted actor. The `activity` repository is READ-ONLY (FND-05 /
+ * ADR-012): events are appended only as the atomic side effect of a mutation,
+ * using the trusted actor established below.
  */
 export interface WorkspaceScope {
   readonly context: WorkspaceContext;
   readonly entities: EntityRepository;
   readonly entityLinks: EntityLinkRepository;
+  readonly spine: SpineRepository;
   readonly activity: ActivityRepository;
 }
 
@@ -100,6 +105,7 @@ export async function resolveWorkspaceScope(
   const entityLinks = createEntityLinkRepository(env.DB, context, {
     actorContext,
   });
+  const spine = createSpineRepository(env.DB, context, { actorContext });
   const activity = createActivityRepository(env.DB, context);
-  return { context, entities, entityLinks, activity };
+  return { context, entities, entityLinks, spine, activity };
 }

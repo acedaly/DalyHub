@@ -403,6 +403,44 @@ EntityLink logs, module audit tables or per-feature timeline stores — record
 Activity through the atomic seam instead. And do **not** fabricate history for
 records created before migration 0004: the stream begins at deployment.
 
+## Spine domain tables (FND-07)
+
+The Area → Goal → Project → Task **spine** is the first domain model built on the
+kernel. It follows every convention above: Areas/Goals/Projects/Tasks are ordinary
+`entities` rows, their parentage is EntityLinks, and their mutations record Activity
+through the atomic seam. The only additive storage is one STRICT domain table,
+`spine_records`, added by **migration `0005_create_spine_hierarchy.sql`**:
+
+```
+spine_records ( workspace_id, entity_id, kind, completed_at )
+  PRIMARY KEY (workspace_id, entity_id)
+  CHECK (kind IN ('area','goal','project','task'))
+  CHECK (kind <> 'area' OR completed_at IS NULL)   -- Areas never complete
+  FOREIGN KEY (workspace_id, entity_id, kind)
+    REFERENCES entities (workspace_id, id, type) ON DELETE RESTRICT
+```
+
+Two things make the schema self-enforcing. The **composite foreign key** to
+`entities(workspace_id, id, type)` (backed by the new `entities_workspace_id_type_key`
+unique index) means a `spine_records.kind` can only reference an entity of the
+matching `type` in the same workspace — a Task spine row cannot point at a `note`.
+And a **partial unique index** over `entity_links (workspace_id, source_entity_id)`,
+restricted to the five structural link types where `deleted_at IS NULL`, enforces
+*at most one active structural parent per child* at the database, so the
+exactly-one-parent rule survives any concurrency.
+
+Migration `0005` is **additive** and does **no backfill**: generic pre-spine rows
+are never guessed into a hierarchy (DalyHub V2 has not entered production). Spine
+records only exist once the `SpineRepository` creates them.
+
+Module code never touches `spine_records` or structural links directly. It uses the
+workspace-bound `SpineRepository` (exposed as `workspace.spine` from
+`resolveWorkspaceScope`), which is the **only** authoritative path — the generic
+Entity/EntityLink repositories refuse to mutate reserved spine types. The full
+model — kinds, permitted hierarchy, completion vs. deletion, derived rollups,
+move/reparent, reserved mutation paths and Activity events — is documented in
+[`SPINE_MODEL.md`](SPINE_MODEL.md).
+
 ## Running the kernel tests
 
 ```bash
