@@ -155,13 +155,16 @@ export class RoutePathConflictError extends ModuleRegistryError {
 }
 
 /** Why a route's parent reference is invalid. */
-export type RouteParentReason = "unresolved" | "cross_module" | "self";
+export type RouteParentReason =
+  "unresolved" | "cross_module" | "self" | "cycle";
 
 /**
  * A route named a `parentId` that cannot be safely resolved: it references no
  * known route (`unresolved`), it points at a route owned by a different module
- * without that being explicitly supported (`cross_module`), or a route named
- * itself as its own parent (`self`).
+ * without that being explicitly supported (`cross_module`), a route named itself
+ * as its own parent (`self`), or its parent chain forms a cycle that never
+ * reaches a root (`cycle`) — which would leave the routes un-composable (no root
+ * node) and silently dropped from the tree.
  */
 export class RouteParentError extends ModuleRegistryError {
   readonly code = "route_parent" as const;
@@ -175,7 +178,9 @@ export class RouteParentError extends ModuleRegistryError {
         ? `references unknown parent route "${parentId}"`
         : reason === "cross_module"
           ? `references parent route "${parentId}" owned by another module`
-          : `cannot be its own parent`;
+          : reason === "cycle"
+            ? `is part of a parent cycle (via "${parentId}") that never reaches a root`
+            : `cannot be its own parent`;
     super(`Route "${routeId}" ${detail}`);
     this.routeId = routeId;
     this.parentId = parentId;

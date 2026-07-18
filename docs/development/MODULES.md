@@ -222,7 +222,7 @@ error (see `app/kernel/modules/module-errors.ts`):
 | Duplicate route id, entity type, link type, activity type, command id, search-provider id, or setting key | `DuplicateContributionError` (with a `kind`) |
 | Module claims a kernel-reserved Activity type | `ReservedActivityTypeError` |
 | Two routes conflict on the same path (or two index routes) under the same parent | `RoutePathConflictError` |
-| Route parent is missing, self, or cross-module | `RouteParentError` |
+| Route parent is missing, self, cross-module, or forms a cycle | `RouteParentError` |
 | A discovered manifest has the wrong export shape | `ModuleDiscoveryError` |
 
 Error messages are developer-useful but never leak environment values, database

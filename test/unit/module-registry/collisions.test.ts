@@ -119,6 +119,92 @@ describe("registry collision detection", () => {
     expect((error as RouteParentError).reason).toBe("unresolved");
   });
 
+  it("rejects a route parent cycle (A → B → A)", () => {
+    const error = captureError(() =>
+      createModuleRegistry([
+        defineModule({
+          id: "notes",
+          name: "Notes",
+          routes: [
+            {
+              id: "notes.a",
+              path: "a",
+              parentId: "notes.b",
+              lazy: () => Promise.resolve({}),
+            },
+            {
+              id: "notes.b",
+              path: "b",
+              parentId: "notes.a",
+              lazy: () => Promise.resolve({}),
+            },
+          ],
+        }),
+      ]),
+    );
+    expect(error).toBeInstanceOf(RouteParentError);
+    expect((error as RouteParentError).reason).toBe("cycle");
+  });
+
+  it("rejects a longer route parent cycle (A → B → C → A)", () => {
+    const error = captureError(() =>
+      createModuleRegistry([
+        defineModule({
+          id: "notes",
+          name: "Notes",
+          routes: [
+            {
+              id: "notes.a",
+              path: "a",
+              parentId: "notes.c",
+              lazy: () => Promise.resolve({}),
+            },
+            {
+              id: "notes.b",
+              path: "b",
+              parentId: "notes.a",
+              lazy: () => Promise.resolve({}),
+            },
+            {
+              id: "notes.c",
+              path: "c",
+              parentId: "notes.b",
+              lazy: () => Promise.resolve({}),
+            },
+          ],
+        }),
+      ]),
+    );
+    expect(error).toBeInstanceOf(RouteParentError);
+    expect((error as RouteParentError).reason).toBe("cycle");
+  });
+
+  it("accepts a valid deep same-module parent chain (no cycle)", () => {
+    expect(() =>
+      createModuleRegistry([
+        defineModule({
+          id: "notes",
+          name: "Notes",
+          routes: [
+            { id: "notes.a", path: "a", lazy: () => Promise.resolve({}) },
+            {
+              id: "notes.b",
+              path: "b",
+              parentId: "notes.a",
+              lazy: () => Promise.resolve({}),
+            },
+            {
+              id: "notes.c",
+              path: "c",
+              parentId: "notes.b",
+              lazy: () => Promise.resolve({}),
+            },
+          ],
+        }),
+      ]),
+    ).not.toThrow();
+  });
+
   it("rejects a cross-module route parent", () => {
     // A parent id must be namespaced under the declaring module, so a
     // cross-module parent reference cannot even be authored — it is rejected at

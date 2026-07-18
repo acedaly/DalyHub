@@ -387,6 +387,27 @@ function validateRouteGraph(
     }
   }
 
+  // Every parent chain must terminate at a root. A cycle (e.g. A→B→A) passes the
+  // per-route checks above — each reference resolves, is same-module and is not a
+  // self-reference — yet leaves the routes un-composable: `buildModuleRouteTree`
+  // would give every route a parent and produce no root, silently dropping them.
+  // Reject any cycle with a typed error. All parents are known to resolve here,
+  // so walking the chain is bounded by the route count.
+  for (const route of routes) {
+    if (route.parentId === undefined) {
+      continue;
+    }
+    const seen = new Set<string>([route.id]);
+    let current: string | undefined = route.parentId;
+    while (current !== undefined) {
+      if (seen.has(current)) {
+        throw new RouteParentError(route.id, route.parentId, "cycle");
+      }
+      seen.add(current);
+      current = routeMap.get(current)?.parentId;
+    }
+  }
+
   // Path conflicts are checked within each effective parent scope.
   const pathsByParent = new Map<string, Map<string, string>>();
   const indexByParent = new Map<string, string>();
