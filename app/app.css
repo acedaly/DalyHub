@@ -10,6 +10,7 @@
  *   2. base.css          — document reset, typography, focus, reduced-motion.
  *   3. shell.css         — the authenticated application shell.
  *   4. record-layout.css — the DS-02 Shared Record Layout.
+ *   5. drawer.css        — the DS-03 Shared Drawer.
  *
  * Theme mechanism (ADR-016 §5.11): the root layout sets `data-theme` on <html>
  * from the persisted cookie during SSR. `light`/`dark` force a scheme; `system`
@@ -22,3 +23,4 @@
 @import "./styles/base.css";
 @import "./styles/shell.css";
 @import "./styles/record-layout.css";
+@import "./styles/drawer.css";
