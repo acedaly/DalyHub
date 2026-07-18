@@ -9,8 +9,9 @@
  *     wrap within the panel (belt-and-braces with the `inert` background, which
  *     already removes everything else from the tab order).
  *   - On close (unmount), focus returns to the control that opened the drawer when
- *     it still exists; otherwise to a safe fallback, so focus is never lost to
- *     `<body>`.
+ *     it still exists; when it does not (e.g. a directly deep-linked drawer), the
+ *     provider's focus safety net places focus into the newly revealed drawer or
+ *     the page's main region, so focus is never lost to `<body>`.
  *
  * The trap only runs while `active` (the top drawer), so a lower drawer that a
  * higher one has covered neither steals focus nor restores it until it truly

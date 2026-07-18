@@ -15,7 +15,7 @@
  * Callers manage no focus traps, portals, history entries or z-index.
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import type { ReactNode } from "react";
 
@@ -193,6 +193,36 @@ export function DrawerProvider({
     () => ({ ...controller, param, buildOpenHref, buildCloseHref }),
     [controller, param, buildOpenHref, buildCloseHref],
   );
+
+  // Focus safety net on close. A closing drawer restores focus to its opener when
+  // it has one; a directly deep-linked drawer has none, so focus can fall to
+  // `<body>`. When a close leaves focus there, place it sensibly: into the newly
+  // revealed top drawer if the stack still has one (so a lower modal is never left
+  // without focus), else the page's main region. The opener path is always
+  // preferred — this only acts when focus was actually lost.
+  const previousDepthRef = useRef(controller.depth);
+  useEffect(() => {
+    const previousDepth = previousDepthRef.current;
+    previousDepthRef.current = controller.depth;
+    if (controller.depth >= previousDepth || typeof document === "undefined") {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (active !== null && active !== document.body) {
+        return;
+      }
+      const topClose = document.querySelector<HTMLElement>(
+        '[data-drawer-stack] .drawer[data-top="true"] .drawer__close',
+      );
+      if (topClose !== null) {
+        topClose.focus();
+        return;
+      }
+      document.getElementById("main-content")?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [controller.depth]);
 
   return (
     <DrawerContext.Provider value={contextValue}>

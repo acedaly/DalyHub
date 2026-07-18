@@ -187,6 +187,21 @@ describe("Drawer — focus management", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("moves focus into the revealed drawer when a deep-linked top closes with no opener", async () => {
+    // A directly deep-linked stack captured no opener for the top level.
+    renderHost({ initialEntries: ["/host?drawer=rec:a&drawer=rec:c"] });
+    const top = screen.getByRole("dialog", { name: "Record rec:c" });
+    fireEvent.click(within(top).getByRole("button", { name: "Close" }));
+
+    // rec:c closes; focus must land inside the revealed rec:a, never on <body>.
+    await waitFor(() => {
+      const lower = screen.getByRole("dialog", { name: "Record rec:a" });
+      expect(
+        within(lower).getByRole("button", { name: "Close" }),
+      ).toHaveFocus();
+    });
+  });
+
   it("traps Tab and Shift+Tab within the top drawer", () => {
     renderHost({ initialEntries: ["/host?drawer=rec:a"] });
     const dialog = screen.getByRole("dialog");

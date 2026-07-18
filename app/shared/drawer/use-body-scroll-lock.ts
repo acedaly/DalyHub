@@ -8,13 +8,14 @@
  * viewport-fixed drawer does not shift when the page scrollbar disappears.
  *
  * A drawer open/close is a same-document overlay, so the page must return to
- * exactly where it was. The app's path-keyed `ScrollRestoration` keeps drawer
- * transitions on one scroll key (ADR-018); as belt-and-braces this hook also
- * captures the pre-lock offset and reasserts it on release in a
- * `requestAnimationFrame` — which runs after any in-commit scroll a history POP
- * applies, but before the next paint, so the page is restored with no visible jump.
- * Runs as a layout effect so freeze/release happen in the same commit, and every
- * mutated value is captured and restored, so nothing leaks.
+ * exactly where it was. Closing dismisses the drawer with a history POP, and React
+ * Router's `ScrollRestoration` applies a scroll on that POP — sometimes on a later
+ * tick than a single rAF, which is why we **reassert** the captured offset across
+ * the next several frames until it stays put (bounded, and released early once
+ * stable). Combined with the app's path-keyed `ScrollRestoration` (ADR-018 §18.6),
+ * this makes scroll preservation deterministic. Runs as a layout effect so the
+ * freeze/release happen in the same commit, and every mutated value is restored, so
+ * nothing leaks.
  */
 
 import { useEffect, useLayoutEffect } from "react";
@@ -23,6 +24,12 @@ import { useEffect, useLayoutEffect } from "react";
 // there is no scrolling to lock anyway.
 const useIsomorphicLayoutEffect =
   typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+// Reassert scroll until it has held for this many consecutive frames, capped so a
+// misbehaving restore never traps scrolling for long. Fast path (~4 frames) when
+// nothing fights us; up to ~24 frames if a late POP restore needs correcting.
+const STABLE_FRAMES = 4;
+const MAX_FRAMES = 24;
 
 export function useBodyScrollLock(active: boolean): void {
   useIsomorphicLayoutEffect(() => {
@@ -46,13 +53,22 @@ export function useBodyScrollLock(active: boolean): void {
     return () => {
       root.style.overflow = previousRootOverflow;
       body.style.paddingRight = previousBodyPaddingRight;
+
+      let frame = 0;
+      let stable = 0;
       const reassert = () => {
         if (window.scrollX !== scrollX || window.scrollY !== scrollY) {
           window.scrollTo(scrollX, scrollY);
+          stable = 0;
+        } else {
+          stable += 1;
+        }
+        frame += 1;
+        if (stable < STABLE_FRAMES && frame < MAX_FRAMES) {
+          window.requestAnimationFrame(reassert);
         }
       };
       reassert();
-      window.requestAnimationFrame(reassert);
     };
   }, [active]);
 }
