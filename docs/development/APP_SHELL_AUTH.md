@@ -59,6 +59,26 @@ letting anyone in. Those three values are supplied ONLY at deploy time
 would override the deploy-time secret and clobber it. The auth configuration
 reads them as optional, so they need not appear in the generated `Env` type.
 
+### Production environment guarantees
+
+The committed `wrangler.jsonc` top-level config is the LOCAL/development
+environment; a named `env.production` environment (selected with
+`CLOUDFLARE_ENV=production`, driven by `pnpm run deploy:production`) pins the
+production invariants:
+
+- `ENVIRONMENT` is **always** `production` — so the development authenticator can
+  never activate (it requires a `development`/`test` `ENVIRONMENT`) and the theme
+  cookie is **always** `Secure`;
+- `AUTH_MODE` is **always** `cloudflare-access` — production can never enable
+  development auth;
+- the real remote D1 database id, the provisioned workspace id and the Access
+  team domain / AUD / owner email are **never committed** — they are supplied at
+  deploy time and the deploy fails before any upload if they are missing or still
+  a placeholder.
+
+The full flow (and the credential-free `deploy:dry-run` used by CI) is in
+[DEPLOYMENT.md](./DEPLOYMENT.md).
+
 ## JWT claim requirements & owner enforcement
 
 The Worker verifies, via `jose` against `<team>/cdn-cgi/access/certs`:
@@ -196,9 +216,12 @@ Every response carries baseline headers, applied at the boundary:
 strict-origin-when-cross-origin`, a restrictive `Permissions-Policy`,
 `X-Frame-Options: DENY`, and a minimal CSP (`base-uri 'none'; frame-ancestors
 'none'; object-src 'none'` — deliberately no `script-src`, which would break
-React Router hydration). Authenticated responses are `Cache-Control: private,
-no-store`; a route's own cache policy (e.g. `/health`) is preserved rather than
-duplicated. Framework stack traces are never emitted outside development.
+React Router hydration). Every authenticated response leaves the boundary with
+exactly `Cache-Control: private, no-store`: any route-provided cache policy is
+**overridden**, never preserved, so private application data can never be cached
+by the browser, a shared/CDN cache or an intermediary. The public `/health` route
+is served on the unauthenticated path and keeps its own independent public-route
+cache policy. Framework stack traces are never emitted outside development.
 
 ## workers.dev / custom-domain deployment requirements
 

@@ -370,11 +370,17 @@ dynamic/third-party/remote module loading. Those arrive in later roadmap items.
 > to a declarative, module-relative **`file`** string, because React Router v8
 > framework mode composes routes from build-time file references (ADR-016 §5.10).
 > A route descriptor now lives in `app/modules/<id>/routes.manifest.ts` (pure
-> data), is imported by `module.ts`, and is globbed by `app/routes.ts` — the same
-> descriptors still flow through the validated registry at runtime, and primary
-> navigation is derived from route `meta`. The four spine modules each add one
-> navigable placeholder route (`/areas`, `/goals`, `/projects`, `/tasks`); their
-> product functionality is still later work.
+> data), is imported by `module.ts`, and is globbed by `app/routes.ts`. Both the
+> runtime registry and the build-time `app/routes.ts` composition run the **same
+> pure authoritative route validator** (`validateModuleRoutes` in the module
+> kernel): the build-time path does not cast folder names and raw descriptors into
+> registered routes, it validates them, so the real build fails loudly on an
+> invalid module folder/descriptor, a route id outside the module namespace, a
+> duplicate id, a duplicate/conflicting path, or a missing/cross-module/cyclic/
+> index parent — there is no second, drifting validator. Primary navigation is
+> derived from route `meta`. The four spine modules each add one navigable
+> placeholder route (`/areas`, `/goals`, `/projects`, `/tasks`); their product
+> functionality is still later work.
 
 ---
 

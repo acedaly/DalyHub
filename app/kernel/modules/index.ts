@@ -89,6 +89,12 @@ export {
 export { type ModuleRegistry, createModuleRegistry } from "./module-registry";
 
 export {
+  type ModuleRouteSource,
+  validateModuleRoutes,
+  validateRouteGraph,
+} from "./route-composition";
+
+export {
   type DiscoveredManifestModule,
   MODULE_MANIFEST_EXPORT,
   collectModuleDefinitions,

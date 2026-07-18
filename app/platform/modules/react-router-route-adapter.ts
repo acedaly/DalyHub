@@ -18,11 +18,13 @@
 
 import { index, route, type RouteConfigEntry } from "@react-router/dev/routes";
 
-import type {
-  ModuleId,
-  RegisteredRoute,
-  RouteContribution,
-} from "~/kernel/modules";
+// Value import via a RELATIVE path (not the `~` barrel): `app/routes.ts` is
+// evaluated by React Router's bare config loader, which cannot resolve `~` for
+// VALUE imports. `route-composition` is the storage-kernel-free authoritative
+// route validator, so this stays bundlable at build time. Types below are
+// erased, so a `~` type-only import is safe.
+import { validateModuleRoutes } from "../../kernel/modules/route-composition";
+import type { ModuleId, RouteContribution } from "~/kernel/modules";
 
 import {
   buildModuleRouteTree,
@@ -75,33 +77,37 @@ type ModuleRouteManifestModule = {
 const MODULE_MANIFEST_PATH = /\/modules\/([^/]+)\/routes\.manifest\.[tj]sx?$/;
 
 /**
- * Compose the module route configuration for `app/routes.ts` directly from the
- * globbed, declarative route manifests. Deliberately does NOT touch the runtime
- * module registry (which imports the kernel and therefore the `~` alias the bare
- * config loader cannot resolve): it reads the pure descriptor arrays, attaches
- * each route's owning module id (derived from its manifest path), and reuses the
- * shared tree builder + React Router mapping. The same descriptors flow through
- * the validated registry at runtime, so the registry remains the authority on
- * duplicate ids, path conflicts and file safety (ADR-016 §5.10).
+ * Compose the module route configuration for the real `app/routes.ts` from the
+ * globbed, declarative route manifests. This is the build-time composition path,
+ * and it runs the SAME pure authoritative validation the runtime module registry
+ * runs: it does not cast raw folder names and descriptors into registered routes,
+ * it validates them. Each manifest's folder name and its descriptors are passed
+ * to `validateModuleRoutes` (`parseModuleId` + `validateRouteContribution` +
+ * duplicate-id + full route-graph checks), so the build fails loudly on an
+ * invalid module folder, an invalid descriptor, a route id outside the module
+ * namespace, a duplicate id, a duplicate/conflicting path, or a missing/
+ * cross-module/cyclic parent — exactly as runtime registration does. There is no
+ * second, drifting validator (ADR-016 §5.10).
+ *
+ * It deliberately avoids the runtime registry object itself (which imports the
+ * `~` alias the bare `routes.ts` config loader cannot resolve) but shares the
+ * registry's route rules through the kernel's pure validator.
  */
 export function composeModuleRouteConfig(
   manifests: Record<string, ModuleRouteManifestModule>,
 ): RouteConfigEntry[] {
-  const registered: RegisteredRoute[] = [];
-  // Sort by path so composition order is deterministic and not filesystem- or
-  // enumeration-dependent (mirrors the registry's discovery ordering).
-  for (const [path, manifest] of Object.entries(manifests).sort(([a], [b]) =>
-    a.localeCompare(b),
-  )) {
-    const match = MODULE_MANIFEST_PATH.exec(path);
-    if (match === null) {
-      continue;
-    }
-    const moduleId = match[1] as ModuleId;
-    for (const route of manifest.default ?? []) {
-      registered.push({ ...route, moduleId });
-    }
-  }
+  // Sort by manifest path so composition order is deterministic and not
+  // filesystem- or enumeration-dependent (mirrors the registry's ordering).
+  const sources = Object.entries(manifests)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .flatMap(([path, manifest]) => {
+      const match = MODULE_MANIFEST_PATH.exec(path);
+      if (match === null) {
+        return [];
+      }
+      return [{ moduleId: match[1], routes: manifest.default }];
+    });
+  const registered = validateModuleRoutes(sources);
   return toReactRouterRoutes(buildModuleRouteTree(registered));
 }
 

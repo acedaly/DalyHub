@@ -41,21 +41,44 @@ describe("withSecurityHeaders", () => {
     expect(await response.text()).toBe("hi");
   });
 
+  // Every authenticated response leaves the boundary with exactly
+  // `private, no-store`, no matter what cache policy the route tried to set. A
+  // route-provided policy is OVERRIDDEN, never preserved — private application
+  // data must never be cached by the browser, a shared/CDN cache or an
+  // intermediary.
+  it.each([
+    "public, max-age=3600",
+    "s-maxage=3600",
+    "max-age=3600",
+    "no-cache",
+    "private, max-age=5",
+    "private, no-store",
+  ])("forces private, no-store over a route policy of %s", (routePolicy) => {
+    const response = withSecurityHeaders(
+      new Response("x", { headers: { "Cache-Control": routePolicy } }),
+      { authenticated: true },
+    );
+    // Exactly `private, no-store` — the route policy is replaced, not appended.
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  });
+
   it("does not add a private cache policy to public responses", () => {
     const response = withSecurityHeaders(
       new Response("ok", { headers: { "Cache-Control": "no-store" } }),
       { authenticated: false },
     );
-    // Public route keeps its own policy; not overwritten with a contradictory one.
+    // The public /health route keeps its own independent public-route policy.
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
-  it("preserves a route's own cache policy rather than duplicating it", () => {
+  it("leaves a public response's absent cache policy untouched", () => {
     const response = withSecurityHeaders(
-      new Response("x", { headers: { "Cache-Control": "private, max-age=5" } }),
-      { authenticated: true },
+      new Response("ok", {
+        headers: { "Cache-Control": "public, max-age=30" },
+      }),
+      { authenticated: false },
     );
-    expect(response.headers.get("Cache-Control")).toBe("private, max-age=5");
+    expect(response.headers.get("Cache-Control")).toBe("public, max-age=30");
   });
 });
 

@@ -1,38 +1,30 @@
 /**
- * FND-06 Module Registry kernel — boundary validation.
+ * FND-06 Module Registry kernel — module-id, route, command and setting
+ * validation (the storage-kernel-free core).
  *
- * Pure, storage-independent validation of every module manifest and its
- * capability descriptors. The registry validates BEFORE it exposes anything, so
- * an incompletely or ambiguously composed application never serves requests
- * (ADR-013 §16). Validators return a NORMALISED, freshly-constructed descriptor
- * (a defensive copy built from primitive reads of the source) or throw a typed
- * `ModuleRegistryError`. Building new objects here means a later mutation of the
- * source manifest cannot reach into the registry (ADR-013 §4.4).
+ * Pure, storage-independent validation of module identity and the capability
+ * descriptors that need NO storage-kernel validator: the module-id slug,
+ * module-namespaced capability ids, safe route paths and file references, command
+ * descriptors, and setting-default type-matching. The registry validates BEFORE
+ * it exposes anything, so an incompletely or ambiguously composed application
+ * never serves requests (ADR-013 §16). Validators return a NORMALISED,
+ * freshly-constructed descriptor (a defensive copy built from primitive reads of
+ * the source) or throw a typed `ModuleRegistryError`. Building new objects here
+ * means a later mutation of the source manifest cannot reach into the registry
+ * (ADR-013 §4.4).
  *
- * Identifier validation is REUSED, not duplicated: entity types go through the
- * FND-02 `validateEntityType`, link types through the FND-04 `parseEntityLinkType`,
- * and Activity types through the FND-05 `parseActivityType`. This module adds only
- * the module-specific rules: the module-id slug, module-namespaced capability ids,
- * safe route paths, setting-default type-matching, and kernel-reserved Activity
- * types.
+ * This file deliberately imports NO storage kernel (`~/kernel/entities` …). The
+ * entity/link/activity/search validators that REUSE those kernel identifier
+ * validators live in `entity-contribution-validation.ts`, so this route/id core
+ * can be bundled by the React Router bare config loader (which cannot resolve the
+ * `~` alias) when the real `app/routes.ts` composes routes at build time.
  */
 
-import { validateEntityType } from "~/kernel/entities";
-import { parseEntityLinkType } from "~/kernel/entity-links";
-import { parseActivityType } from "~/kernel/activity";
-
-import {
-  ModuleDefinitionError,
-  ReservedActivityTypeError,
-} from "./module-errors";
+import { ModuleDefinitionError } from "./module-errors";
 import type {
-  ActivityTypeContribution,
   CommandContribution,
   CommandShortcut,
-  EntityLinkTypeContribution,
-  EntityTypeContribution,
   RouteContribution,
-  SearchProviderContribution,
   SettingContribution,
   SettingEnumOption,
 } from "./module-capabilities";
@@ -168,9 +160,11 @@ export function isModuleId(value: unknown): value is ModuleId {
 
 /**
  * Validate and normalise a required display label: non-empty after trimming and
- * within the documented length. Returns the trimmed value.
+ * within the documented length. Returns the trimmed value. Exported so the
+ * entity/link/activity contribution validators (split into their own module to
+ * keep this route/id core free of storage-kernel imports) can reuse it.
  */
-function validateLabel(
+export function validateLabel(
   value: unknown,
   field: string,
   moduleId: string,
@@ -193,7 +187,7 @@ function validateLabel(
 }
 
 /** Validate an optional description, returning undefined when absent. */
-function validateOptionalDescription(
+export function validateOptionalDescription(
   value: unknown,
   field: string,
   moduleId: string,
@@ -469,20 +463,6 @@ export function validateRouteFile(
   return value;
 }
 
-/** Wrap a reused kernel identifier validator's failure as a registry error. */
-function runIdentifierValidator<T>(
-  validate: () => T,
-  field: string,
-  moduleId: string,
-): T {
-  try {
-    return validate();
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "is invalid";
-    throw new ModuleDefinitionError(field, message, moduleId);
-  }
-}
-
 /* -------------------------------------------------------------------------- */
 /* Route contribution                                                         */
 /* -------------------------------------------------------------------------- */
@@ -574,124 +554,6 @@ export function validateRouteContribution(
     ...(parentId === undefined ? {} : { parentId }),
     file,
     ...(meta === undefined ? {} : { meta }),
-  };
-}
-
-/* -------------------------------------------------------------------------- */
-/* Entity-type contribution                                                   */
-/* -------------------------------------------------------------------------- */
-
-/** Validate one entity-type contribution, returning a normalised defensive copy. */
-export function validateEntityTypeContribution(
-  contribution: EntityTypeContribution,
-  moduleId: string,
-  index: number,
-): EntityTypeContribution {
-  const field = `entityTypes[${index}]`;
-  const type = runIdentifierValidator(
-    () => validateEntityType(contribution.type),
-    `${field}.type`,
-    moduleId,
-  );
-  const singular = validateLabel(
-    contribution.singular,
-    `${field}.singular`,
-    moduleId,
-  );
-  const plural =
-    contribution.plural === undefined
-      ? undefined
-      : validateLabel(contribution.plural, `${field}.plural`, moduleId);
-  return {
-    type,
-    singular,
-    ...(plural === undefined ? {} : { plural }),
-  };
-}
-
-/* -------------------------------------------------------------------------- */
-/* EntityLink-type contribution                                               */
-/* -------------------------------------------------------------------------- */
-
-/** Validate one link-type contribution, returning a normalised defensive copy. */
-export function validateEntityLinkTypeContribution(
-  contribution: EntityLinkTypeContribution,
-  moduleId: string,
-  index: number,
-): EntityLinkTypeContribution {
-  const field = `entityLinkTypes[${index}]`;
-  const type = runIdentifierValidator(
-    () => parseEntityLinkType(contribution.type),
-    `${field}.type`,
-    moduleId,
-  );
-  const sourceLabel = validateLabel(
-    contribution.sourceLabel,
-    `${field}.sourceLabel`,
-    moduleId,
-  );
-  const targetLabel =
-    contribution.targetLabel === undefined
-      ? undefined
-      : validateLabel(
-          contribution.targetLabel,
-          `${field}.targetLabel`,
-          moduleId,
-        );
-  const sourceEntityType =
-    contribution.sourceEntityType === undefined
-      ? undefined
-      : runIdentifierValidator(
-          () => validateEntityType(contribution.sourceEntityType),
-          `${field}.sourceEntityType`,
-          moduleId,
-        );
-  const targetEntityType =
-    contribution.targetEntityType === undefined
-      ? undefined
-      : runIdentifierValidator(
-          () => validateEntityType(contribution.targetEntityType),
-          `${field}.targetEntityType`,
-          moduleId,
-        );
-  return {
-    type,
-    sourceLabel,
-    ...(targetLabel === undefined ? {} : { targetLabel }),
-    ...(sourceEntityType === undefined ? {} : { sourceEntityType }),
-    ...(targetEntityType === undefined ? {} : { targetEntityType }),
-  };
-}
-
-/* -------------------------------------------------------------------------- */
-/* Activity-type contribution                                                 */
-/* -------------------------------------------------------------------------- */
-
-/** Validate one Activity-type contribution, returning a normalised defensive copy. */
-export function validateActivityTypeContribution(
-  contribution: ActivityTypeContribution,
-  moduleId: string,
-  index: number,
-): ActivityTypeContribution {
-  const field = `activityTypes[${index}]`;
-  const type = runIdentifierValidator(
-    () => parseActivityType(contribution.type),
-    `${field}.type`,
-    moduleId,
-  );
-  if (RESERVED_ACTIVITY_TYPES.has(type)) {
-    throw new ReservedActivityTypeError(moduleId, type);
-  }
-  const label = validateLabel(contribution.label, `${field}.label`, moduleId);
-  const description = validateOptionalDescription(
-    contribution.description,
-    `${field}.description`,
-    moduleId,
-  );
-  return {
-    type,
-    label,
-    ...(description === undefined ? {} : { description }),
   };
 }
 
@@ -808,51 +670,6 @@ export function validateCommandContribution(
     ...(keywords === undefined ? {} : { keywords }),
     ...(shortcut === undefined ? {} : { shortcut }),
     run: contribution.run,
-  };
-}
-
-/* -------------------------------------------------------------------------- */
-/* Search-provider contribution                                               */
-/* -------------------------------------------------------------------------- */
-
-/** Validate one search-provider contribution, returning a normalised defensive copy. */
-export function validateSearchProviderContribution(
-  contribution: SearchProviderContribution,
-  moduleId: string,
-  index: number,
-): SearchProviderContribution {
-  const field = `searchProviders[${index}]`;
-  const id = validateQualifiedId(contribution.id, moduleId, `${field}.id`);
-  const label = validateLabel(contribution.label, `${field}.label`, moduleId);
-  let entityTypes: readonly string[] | undefined;
-  if (contribution.entityTypes !== undefined) {
-    if (!Array.isArray(contribution.entityTypes)) {
-      throw new ModuleDefinitionError(
-        `${field}.entityTypes`,
-        "must be an array",
-        moduleId,
-      );
-    }
-    entityTypes = contribution.entityTypes.map((entityType, i) =>
-      runIdentifierValidator(
-        () => validateEntityType(entityType),
-        `${field}.entityTypes[${i}]`,
-        moduleId,
-      ),
-    );
-  }
-  if (typeof contribution.search !== "function") {
-    throw new ModuleDefinitionError(
-      `${field}.search`,
-      "must be a function (the search executor)",
-      moduleId,
-    );
-  }
-  return {
-    id,
-    label,
-    ...(entityTypes === undefined ? {} : { entityTypes }),
-    search: contribution.search,
   };
 }
 

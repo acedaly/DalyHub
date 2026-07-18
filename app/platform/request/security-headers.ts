@@ -5,10 +5,13 @@
  * A small, verified header policy applied to every response at the Worker
  * boundary (ADR-016 §18). It is intentionally conservative so it cannot break
  * React Router SSR/hydration: the CSP restricts only `base-uri`, `frame-ancestors`
- * and `object-src` (no `script-src`, which would block hydration). Authenticated
- * responses are marked private/no-store so private application data is never
- * cached publicly; the public `/health` response keeps its own cache policy. No
- * framework stack traces or private details are ever emitted.
+ * and `object-src` (no `script-src`, which would block hydration). Every
+ * authenticated response leaves the boundary with exactly `Cache-Control:
+ * private, no-store` — any route-provided cache policy is OVERRIDDEN, never
+ * preserved, so private application data can never be cached publicly or by an
+ * intermediary. The public `/health` route keeps its own independent public-route
+ * policy (it is served on the unauthenticated path and never passes through here).
+ * No framework stack traces or private details are ever emitted.
  */
 
 import { AuthError } from "~/kernel/auth";
@@ -44,21 +47,26 @@ export function applyBaseSecurityHeaders(headers: Headers): void {
   headers.set("X-Frame-Options", "DENY");
 }
 
+/** The single cache policy every authenticated response leaves the boundary with. */
+export const AUTHENTICATED_CACHE_CONTROL = "private, no-store";
+
 /**
- * Ensure an authenticated response is not publicly cacheable. Only sets a policy
- * when the route did not already declare one, so a route's deliberate, narrower
- * cache policy is preserved and never contradicted.
+ * Force the private, non-cacheable policy on an authenticated response. This
+ * OVERRIDES any route-provided `Cache-Control` (public, s-maxage, max-age,
+ * no-cache, a narrower private policy, …) with exactly `private, no-store`. A
+ * protected response must never carry a route's own cache policy: authenticated
+ * data may not be cached by the browser, a shared/CDN cache or any intermediary.
+ * Uses `set` so any inherited value is replaced, not appended.
  */
 export function applyAuthenticatedCachePolicy(headers: Headers): void {
-  if (!headers.has("Cache-Control")) {
-    headers.set("Cache-Control", "private, no-store");
-  }
+  headers.set("Cache-Control", AUTHENTICATED_CACHE_CONTROL);
 }
 
 /**
- * Re-emit a response with the baseline security headers applied (and, for
- * authenticated responses, a private cache policy). Rebuilding the response keeps
- * the (possibly streaming) body intact while guaranteeing our headers win.
+ * Re-emit a response with the baseline security headers applied. For an
+ * authenticated response the cache policy is forced to `private, no-store`,
+ * overriding whatever the route set. Rebuilding the response keeps the (possibly
+ * streaming) body intact while guaranteeing our headers win.
  */
 export function withSecurityHeaders(
   response: Response,
@@ -101,7 +109,7 @@ export function buildUnauthenticatedResponse(error: unknown): Response {
   const status = error instanceof AuthError ? statusForAuthError(error) : 403;
   const headers = new Headers({
     "Content-Type": "text/plain; charset=utf-8",
-    "Cache-Control": "private, no-store",
+    "Cache-Control": AUTHENTICATED_CACHE_CONTROL,
   });
   applyBaseSecurityHeaders(headers);
   const message =
