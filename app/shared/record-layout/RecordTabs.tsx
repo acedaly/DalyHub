@@ -106,7 +106,11 @@ export function RecordTabs({
     [shown, focusAndSelect],
   );
 
-  if (shown.length === 0 || activeId === undefined) {
+  // Only a genuinely empty (all-hidden) tab set collapses the strip. If tabs are
+  // present but ALL disabled, `activeId` is undefined — we still render the
+  // disabled tabs (per the contract that disabled tabs stay visible) with no
+  // active panel, rather than hiding the record's sections entirely.
+  if (shown.length === 0) {
     return null;
   }
 

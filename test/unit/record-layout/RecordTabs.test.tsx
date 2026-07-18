@@ -84,6 +84,22 @@ describe("RecordTabs — selection", () => {
     expect(getTab("Tasks")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tabpanel")).toHaveTextContent("Tasks panel");
   });
+
+  it("keeps an all-disabled tab strip visible with no active panel", () => {
+    const allDisabled: RecordTab[] = [
+      { id: "a", label: "Alpha", disabled: true, content: <p>Alpha</p> },
+      { id: "b", label: "Beta", disabled: true, content: <p>Beta</p> },
+    ];
+    render(<RecordTabs tabs={allDisabled} label="Sections" />);
+    // The tablist and its (disabled) tabs remain visible — sections are not hidden.
+    expect(
+      screen.getByRole("tablist", { name: "Sections" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")).toHaveLength(2);
+    expect(getTab("Alpha")).toHaveAttribute("aria-selected", "false");
+    // No tab is active, so no panel is visible (all panels are hidden).
+    expect(screen.queryByRole("tabpanel")).toBeNull();
+  });
 });
 
 describe("RecordTabs — keyboard navigation", () => {
