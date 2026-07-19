@@ -13,7 +13,7 @@ export {
   searchLinkTargets,
   listActiveLinks,
   createLinkWithPolicy,
-  unlinkLink,
+  unlinkWithPolicy,
   entityToTargetOption,
   DEFAULT_TARGET_LIMIT,
   MAX_TARGET_LIMIT,
@@ -25,4 +25,6 @@ export {
   type CreateLinkRequest,
   type CreateLinkRejectionReason,
   type CreateLinkResult,
+  type UnlinkRejectionReason,
+  type UnlinkResult,
 } from "./entity-link-picker-service";

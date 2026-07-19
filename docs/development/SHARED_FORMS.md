@@ -116,7 +116,7 @@ import {
   searchLinkTargets,
   listActiveLinks,
   createLinkWithPolicy,
-  unlinkLink,
+  unlinkWithPolicy,
   type EntityLinkPickerPolicy,
 } from "~/platform/entity-links";
 
@@ -137,10 +137,11 @@ const policy: EntityLinkPickerPolicy = {
 // list:   listActiveLinks(deps, { anchorId, direction, linkTypes })
 // create: const result = await createLinkWithPolicy(deps, policy, { targetId, linkType, direction })
 //         → result.ok ? … : show result.message (typed, safe — never a raw error)
-// remove: unlinkLink(deps, linkId)
+// remove: const r = await unlinkWithPolicy(deps, policy, linkId)
+//         → r.ok ? … : show r.message
 ```
 
-`createLinkWithPolicy` validates every untrusted attribute against the policy — direction allowed, link type permitted, target type allowed, no self-link, anchor/target accessible, single-selection limit — before delegating to the FND-04 repository (which enforces workspace scope, reserved spine types and duplicate uniqueness). It returns `{ok:true,…}` or `{ok:false, reason, message}` — translate `message` into calm UI text.
+`createLinkWithPolicy` validates every untrusted attribute against the policy — direction allowed, link type permitted, target type allowed, no self-link, anchor/target accessible, single-selection limit — before delegating to the FND-04 repository (which enforces workspace scope, reserved spine types and duplicate uniqueness). `unlinkWithPolicy` is likewise authorised: it verifies the link exists in the workspace, is actually anchored to `policy.anchorId`, and its type + direction are permitted, before removing it — a crafted id (another anchor, an un-offered type, another workspace) is refused. Both return `{ok:true,…}` or `{ok:false, reason, message}` — translate `message` into calm UI text. The `multiple:false` limit is **concurrency-safe**: because a pre-check + create is a TOCTOU race, `createLinkWithPolicy` reconciles after creating (keeping the deterministically-earliest link and rolling back its own if it lost), so two concurrent creates converge on exactly one active link.
 
 ```tsx
 // client

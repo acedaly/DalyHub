@@ -22,11 +22,12 @@ import type { EntityRecord, EntityRepository } from "~/kernel/entities";
 import {
   EntityLinkEndpointNotFoundError,
   EntityLinkError,
+  EntityLinkNotFoundError,
   EntityLinkReservedTypeError,
   EntityLinkValidationError,
   isEntityLinkType,
   type CreateEntityLinkOutcome,
-  type EntityLinkLifecycleResult,
+  type EntityLinkLifecycleOutcome,
   type EntityLinkRecord,
   type EntityLinkRepository,
 } from "~/kernel/entity-links";
@@ -41,7 +42,7 @@ export interface EntityLinkPickerDeps {
   readonly entities: Pick<EntityRepository, "list" | "getById">;
   readonly entityLinks: Pick<
     EntityLinkRepository,
-    "create" | "listForEntity" | "unlink"
+    "create" | "getById" | "listForEntity" | "unlink"
   >;
 }
 
@@ -291,18 +292,33 @@ export async function createLinkWithPolicy(
     return reject("target_type_not_allowed");
   }
 
-  // 6) Single-selection limit: no existing active link across policy link types
-  // in the permitted directions.
-  if (!policy.multiple) {
-    const existing = await listActiveLinks(deps, {
-      anchorId: policy.anchorId,
+  // The anchor's active links across the policy's link types and permitted
+  // directions, ordered deterministically by (createdAt, id). Used for the fast
+  // single-limit pre-check and the post-create concurrency reconciliation.
+  const policyTypes = new Set(policy.linkTypes.map((t) => t.type));
+  const activePolicyLinks = async (): Promise<
+    ReadonlyArray<{ id: string; createdAt: Date }>
+  > => {
+    const page = await deps.entityLinks.listForEntity(policy.anchorId, {
       direction: "both",
-      linkTypes: policy.linkTypes.map((t) => t.type),
+      limit: 100,
     });
-    const active = existing.filter((sel) =>
-      policy.allowedDirections.includes(sel.direction),
-    );
-    if (active.length > 0) return reject("single_link_limit");
+    return page.items
+      .filter(
+        (v) =>
+          policyTypes.has(v.link.type) &&
+          policy.allowedDirections.includes(v.direction),
+      )
+      .map((v) => ({ id: v.link.id, createdAt: v.link.createdAt }))
+      .sort((a, b) => {
+        const byTime = a.createdAt.getTime() - b.createdAt.getTime();
+        return byTime !== 0 ? byTime : a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+      });
+  };
+
+  // 6) Single-selection limit — fast pre-check.
+  if (!policy.multiple && (await activePolicyLinks()).length > 0) {
+    return reject("single_link_limit");
   }
 
   // 7) Delegate to the FND-04 repository (the authoritative last word).
@@ -310,18 +326,13 @@ export async function createLinkWithPolicy(
     direction === "outgoing"
       ? [policy.anchorId, request.targetId]
       : [request.targetId, policy.anchorId];
+  let created;
   try {
-    const result = await deps.entityLinks.create({
+    created = await deps.entityLinks.create({
       sourceEntityId,
       targetEntityId,
       type: request.linkType,
     });
-    return {
-      ok: true,
-      created: result.created,
-      outcome: result.outcome,
-      link: result.link,
-    };
   } catch (error) {
     if (error instanceof EntityLinkEndpointNotFoundError) {
       return reject("target_unavailable");
@@ -338,12 +349,95 @@ export async function createLinkWithPolicy(
     if (error instanceof EntityLinkError) return reject("storage");
     throw error;
   }
+
+  // 8) Concurrency-safe single limit. A pre-check + create is a TOCTOU race: two
+  // concurrent creates of DIFFERENT targets both pass the pre-check, and the
+  // kernel's uniqueness only prevents an identical duplicate — not "one link
+  // total". So after creating, re-check; if more than one active policy link now
+  // exists, keep the deterministically-earliest (by createdAt, then id) and
+  // unlink OUR OWN link if it is not that winner. Each caller only ever unlinks
+  // the link it just created, so concurrent creators converge on exactly one.
+  if (!policy.multiple) {
+    const active = await activePolicyLinks();
+    if (active.length > 1 && active[0]!.id !== created.link.id) {
+      await deps.entityLinks.unlink(created.link.id);
+      return reject("single_link_limit");
+    }
+  }
+
+  return {
+    ok: true,
+    created: created.created,
+    outcome: created.outcome,
+    link: created.link,
+  };
 }
 
-/** Remove (soft-delete) a link by id through the FND-04 repository. */
-export function unlinkLink(
+/** Why a policy-authorised unlink was refused (all safe to show the user). */
+export type UnlinkRejectionReason = "not_found" | "not_permitted" | "storage";
+
+/** The typed, safe outcome of a policy-authorised unlink. */
+export type UnlinkResult =
+  | {
+      readonly ok: true;
+      readonly changed: boolean;
+      readonly outcome: EntityLinkLifecycleOutcome;
+    }
+  | {
+      readonly ok: false;
+      readonly reason: UnlinkRejectionReason;
+      readonly message: string;
+    };
+
+const UNLINK_MESSAGES: Record<UnlinkRejectionReason, string> = {
+  not_found: "That link no longer exists.",
+  not_permitted: "That link can't be removed here.",
+  storage: "That link couldn't be removed. Please try again.",
+};
+
+function rejectUnlink(reason: UnlinkRejectionReason): UnlinkResult {
+  return { ok: false, reason, message: UNLINK_MESSAGES[reason] };
+}
+
+/**
+ * Remove (soft-delete) a link, AUTHORISED by the same server policy. The client
+ * only ever hands back a link id, which is untrusted: this verifies the link
+ * exists in the bound workspace, is actually anchored to `policy.anchorId`, and
+ * its type + direction-from-the-anchor are permitted by the policy, before
+ * delegating to the FND-04 repository. A crafted id — for another anchor, a link
+ * type the picker never offered, or (indistinguishably) another workspace — is
+ * refused with a typed, safe outcome; a raw repository error never escapes.
+ */
+export async function unlinkWithPolicy(
   deps: EntityLinkPickerDeps,
+  policy: EntityLinkPickerPolicy,
   linkId: string,
-): Promise<EntityLinkLifecycleResult> {
-  return deps.entityLinks.unlink(linkId);
+): Promise<UnlinkResult> {
+  if (!linkId) return rejectUnlink("not_found");
+  const link = await deps.entityLinks.getById(linkId);
+  if (!link) return rejectUnlink("not_found");
+
+  const anchorIsSource = link.sourceEntityId === policy.anchorId;
+  const anchorIsTarget = link.targetEntityId === policy.anchorId;
+  if (!anchorIsSource && !anchorIsTarget) return rejectUnlink("not_permitted");
+  const direction: EntityLinkPickerDirection = anchorIsSource
+    ? "outgoing"
+    : "incoming";
+  if (!policy.allowedDirections.includes(direction)) {
+    return rejectUnlink("not_permitted");
+  }
+  if (!policy.linkTypes.some((t) => t.type === link.type)) {
+    return rejectUnlink("not_permitted");
+  }
+
+  try {
+    const result = await deps.entityLinks.unlink(linkId);
+    return { ok: true, changed: result.changed, outcome: result.outcome };
+  } catch (error) {
+    if (error instanceof EntityLinkNotFoundError) {
+      return rejectUnlink("not_found");
+    }
+    if (error instanceof EntityLinkError) return rejectUnlink("storage");
+    throw error;
+  }
 }

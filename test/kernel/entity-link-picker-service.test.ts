@@ -16,7 +16,7 @@ import {
   createLinkWithPolicy,
   listActiveLinks,
   searchLinkTargets,
-  unlinkLink,
+  unlinkWithPolicy,
   type EntityLinkPickerDeps,
   type EntityLinkPickerPolicy,
 } from "~/platform/entity-links";
@@ -281,16 +281,100 @@ describe("DS-06 entity-link picker service (FND-04 policy integration)", () => {
     expect(byTitle.map((t) => t.title)).toEqual(["Creative brief"]);
   });
 
-  it("unlinks through the FND-04 repository and touches only entity_links", async () => {
+  it("policy-authorised unlink removes the link and touches only entity_links", async () => {
     const created = await createLinkWithPolicy(depsA, policy(), {
       targetId: NOTE,
       linkType: "project.supporting_note",
       direction: "outgoing",
     });
     if (!created.ok) throw new Error("expected ok");
-    const result = await unlinkLink(depsA, created.link.id);
-    expect(result.changed).toBe(true);
+    const result = await unlinkWithPolicy(depsA, policy(), created.link.id);
+    expect(result).toMatchObject({ ok: true, changed: true });
     expect(await listActiveLinks(depsA, { anchorId: ANCHOR })).toHaveLength(0);
     expect(await countLinkRows()).toBe(1); // soft-deleted, single table
+  });
+
+  it("refuses a crafted unlink of a link not anchored to the policy anchor", async () => {
+    // A link between NOTE and PERSON (not involving the p-anchor project).
+    await seedEntity(WS_A, "n-other", { type: "note", title: "Other" });
+    const foreign = await createLinkWithPolicy(
+      depsA,
+      { ...policy(), anchorId: NOTE },
+      {
+        targetId: "n-other",
+        linkType: "project.supporting_note",
+        direction: "outgoing",
+      },
+    );
+    if (!foreign.ok) throw new Error("expected ok");
+    // The p-anchor policy must not be able to remove a link it does not anchor.
+    const result = await unlinkWithPolicy(depsA, policy(), foreign.link.id);
+    expect(result).toMatchObject({ ok: false, reason: "not_permitted" });
+    // The link is still active.
+    expect(await listActiveLinks(depsA, { anchorId: NOTE })).toHaveLength(1);
+  });
+
+  it("refuses a crafted unlink of a link type the policy does not allow", async () => {
+    const created = await createLinkWithPolicy(depsA, policy(), {
+      targetId: NOTE,
+      linkType: "project.supporting_note",
+      direction: "outgoing",
+    });
+    if (!created.ok) throw new Error("expected ok");
+    // A policy that no longer permits that link type must not remove it.
+    const narrowed = policy({
+      linkTypes: [
+        { type: "project.involves_person", allowedTargetTypes: ["person"] },
+      ],
+    });
+    const result = await unlinkWithPolicy(depsA, narrowed, created.link.id);
+    expect(result).toMatchObject({ ok: false, reason: "not_permitted" });
+    expect(await listActiveLinks(depsA, { anchorId: ANCHOR })).toHaveLength(1);
+  });
+
+  it("refuses an unknown or cross-workspace link id", async () => {
+    expect(await unlinkWithPolicy(depsA, policy(), "nope")).toMatchObject({
+      ok: false,
+      reason: "not_found",
+    });
+    const created = await createLinkWithPolicy(depsA, policy(), {
+      targetId: NOTE,
+      linkType: "project.supporting_note",
+      direction: "outgoing",
+    });
+    if (!created.ok) throw new Error("expected ok");
+    // Workspace B cannot see (and so cannot unlink) A's link.
+    const crossWs = await unlinkWithPolicy(
+      depsB,
+      { ...policy(), anchorId: ANCHOR },
+      created.link.id,
+    );
+    expect(crossWs).toMatchObject({ ok: false, reason: "not_found" });
+    expect(await listActiveLinks(depsA, { anchorId: ANCHOR })).toHaveLength(1);
+  });
+
+  it("keeps multiple:false concurrency-safe — two concurrent creates leave one link", async () => {
+    const single = policy({ multiple: false });
+    const [a, b] = await Promise.all([
+      createLinkWithPolicy(depsA, single, {
+        targetId: NOTE,
+        linkType: "project.supporting_note",
+        direction: "outgoing",
+      }),
+      createLinkWithPolicy(depsA, single, {
+        targetId: PERSON,
+        linkType: "project.involves_person",
+        direction: "outgoing",
+      }),
+    ]);
+    // Exactly one survives; the loser is rolled back and reported.
+    const active = await listActiveLinks(depsA, { anchorId: ANCHOR });
+    expect(active).toHaveLength(1);
+    const oks = [a, b].filter((r) => r.ok).length;
+    const limited = [a, b].filter(
+      (r) => !r.ok && r.reason === "single_link_limit",
+    ).length;
+    expect(oks).toBe(1);
+    expect(limited).toBe(1);
   });
 });
