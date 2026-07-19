@@ -1,0 +1,358 @@
+/**
+ * DS-06 Shared Forms — the select control (single and multi).
+ *
+ * One control for choosing from a set of options, as an editable combobox with a
+ * listbox popup (WAI-ARIA), fully keyboard operable via the shared
+ * {@link useCombobox} model. It supports:
+ *   - single or multiple selection (multi shows removable chips);
+ *   - client-side type-to-filter, or async loading when the consumer supplies an
+ *     `onSearch` callback and drives `options`/`loading`;
+ *   - a stale/unavailable current value — a selected value with no matching option
+ *     is shown plainly and labelled unavailable, never crashing the control.
+ *
+ * The value is the stable option value(s); labels are display-only.
+ */
+
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { composeDescribedBy, deriveFieldIds } from "./field-ids";
+import type { BaseControlProps } from "./control-props";
+import type { SelectOption } from "./types";
+import { useCombobox } from "./use-combobox";
+
+interface SelectSharedProps {
+  readonly options: readonly SelectOption[];
+  /** Async search: when provided, the consumer owns filtering + `options`. */
+  readonly onSearch?: (query: string) => void;
+  /** Whether options are currently loading (async). */
+  readonly loading?: boolean;
+  readonly placeholder?: string;
+  /** Message when there are no options to show. */
+  readonly emptyMessage?: string;
+}
+
+export type SelectFieldProps =
+  | (BaseControlProps<string> &
+      SelectSharedProps & { readonly multiple?: false })
+  | (BaseControlProps<readonly string[]> &
+      SelectSharedProps & { readonly multiple: true });
+
+function clientFilter(
+  options: readonly SelectOption[],
+  query: string,
+): readonly SelectOption[] {
+  const q = query.trim().toLocaleLowerCase();
+  if (q.length === 0) return options;
+  return options.filter(
+    (option) =>
+      option.label.toLocaleLowerCase().includes(q) ||
+      option.value.toLocaleLowerCase().includes(q),
+  );
+}
+
+export function SelectField(props: SelectFieldProps) {
+  const {
+    id,
+    label,
+    error,
+    help,
+    required,
+    disabled,
+    readOnly,
+    showOptionalCue = true,
+    controlRef,
+    className,
+    options,
+    onSearch,
+    loading = false,
+    placeholder = "Select…",
+    emptyMessage = "No matches.",
+  } = props;
+  const multiple = props.multiple === true;
+
+  const baseId = id ?? `dh-select-${label.replace(/\s+/g, "-").toLowerCase()}`;
+  const { helpId, errorId } = deriveFieldIds(baseId);
+  const labelId = `${baseId}-label`;
+  const invalid = Boolean(error);
+
+  const selectedValues: readonly string[] = useMemo(
+    () =>
+      multiple
+        ? (props.value as readonly string[])
+        : props.value
+          ? [props.value as string]
+          : [],
+    [multiple, props.value],
+  );
+
+  const [query, setQuery] = useState("");
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Options currently displayed: async consumers own filtering; otherwise filter
+  // locally. Already-selected options are hidden in multi mode.
+  const displayOptions = useMemo(() => {
+    const base = onSearch ? options : clientFilter(options, query);
+    return multiple
+      ? base.filter((option) => !selectedValues.includes(option.value))
+      : base;
+  }, [onSearch, options, query, multiple, selectedValues]);
+
+  const commit = (value: string) => {
+    if (readOnly || disabled) return;
+    if (multiple) {
+      const current = props.value as readonly string[];
+      if (!current.includes(value)) {
+        (props.onChange as (v: readonly string[]) => void)([...current, value]);
+      }
+      setQuery("");
+      if (onSearch) onSearch("");
+    } else {
+      (props.onChange as (v: string) => void)(value);
+      const chosen = options.find((option) => option.value === value);
+      setQuery(chosen?.label ?? value);
+      combobox.close();
+    }
+  };
+
+  const combobox = useCombobox({
+    options: displayOptions,
+    onSelect: commit,
+    baseId,
+    disabled: disabled || readOnly,
+  });
+
+  // For single select, keep the input text in sync with the selected label when
+  // the value changes and the popup is closed.
+  const selectedSingle = !multiple
+    ? options.find((option) => option.value === (props.value as string))
+    : undefined;
+  useEffect(() => {
+    if (!multiple && !combobox.isOpen) {
+      setQuery(
+        selectedSingle?.label ?? (props.value ? String(props.value) : ""),
+      );
+    }
+  }, [multiple, combobox.isOpen, selectedSingle?.label, props.value]);
+
+  // Close the popup when focus leaves the whole control.
+  const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    if (!wrapperRef.current?.contains(event.relatedTarget as Node | null)) {
+      combobox.close();
+      props.onBlur?.();
+    }
+  };
+
+  const removeSelected = (value: string) => {
+    if (readOnly || disabled || !multiple) return;
+    const current = props.value as readonly string[];
+    (props.onChange as (v: readonly string[]) => void)(
+      current.filter((v) => v !== value),
+    );
+  };
+
+  const describedBy = composeDescribedBy({
+    helpId: help ? helpId : null,
+    errorId: invalid ? errorId : null,
+  });
+
+  const unavailableSingle =
+    !multiple && props.value && !selectedSingle ? String(props.value) : null;
+
+  const rootClassName = ["dh-field", "dh-field--select", className]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div
+      className={rootClassName}
+      role="group"
+      aria-labelledby={labelId}
+      data-invalid={invalid || undefined}
+      data-disabled={disabled || undefined}
+      data-readonly={readOnly || undefined}
+    >
+      <div className="dh-field__label-row">
+        <span id={labelId} className="dh-field__label-text">
+          {label}
+        </span>
+        {required ? (
+          <span className="dh-field__required">
+            <span aria-hidden="true">*</span>
+            <span className="dh-visually-hidden"> (required)</span>
+          </span>
+        ) : showOptionalCue ? (
+          <span className="dh-field__optional">Optional</span>
+        ) : null}
+      </div>
+
+      <div
+        className="dh-field__control dh-combobox"
+        ref={wrapperRef}
+        onBlur={handleBlur}
+      >
+        {multiple && selectedValues.length > 0 ? (
+          <ul className="dh-select__chips">
+            {selectedValues.map((value) => {
+              const option = options.find((o) => o.value === value);
+              return (
+                <li key={value} className="dh-select__chip">
+                  <span className="dh-select__chip-text">
+                    {option?.label ?? value}
+                    {option ? null : (
+                      <span className="dh-select__unavailable">
+                        {" "}
+                        (unavailable)
+                      </span>
+                    )}
+                  </span>
+                  {!readOnly ? (
+                    <button
+                      type="button"
+                      className="dh-select__chip-remove"
+                      disabled={disabled}
+                      aria-label={`Remove ${option?.label ?? value}`}
+                      onClick={() => removeSelected(value)}
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
+
+        <div className="dh-combobox__field">
+          <input
+            id={baseId}
+            className="dh-input dh-combobox__input"
+            type="text"
+            value={query}
+            placeholder={placeholder}
+            disabled={disabled}
+            readOnly={readOnly}
+            aria-labelledby={labelId}
+            aria-invalid={invalid || undefined}
+            aria-errormessage={invalid ? errorId : undefined}
+            aria-describedby={describedBy}
+            autoComplete="off"
+            ref={(node) => controlRef?.(node)}
+            {...combobox.comboboxProps}
+            onChange={(event) => {
+              const next = event.target.value;
+              setQuery(next);
+              combobox.open();
+              if (onSearch) onSearch(next);
+            }}
+            onFocus={() => {
+              if (!readOnly && !disabled) combobox.open();
+            }}
+            onKeyDown={combobox.onInputKeyDown}
+          />
+          {!multiple && (props.value || query) && !readOnly ? (
+            <button
+              type="button"
+              className="dh-combobox__clear"
+              aria-label="Clear selection"
+              disabled={disabled}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                (props.onChange as (v: string) => void)("");
+                setQuery("");
+                if (onSearch) onSearch("");
+              }}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          ) : null}
+        </div>
+
+        {combobox.isOpen ? (
+          <ul
+            className="dh-listbox"
+            id={combobox.listboxId}
+            role="listbox"
+            aria-label={label}
+          >
+            {loading ? (
+              <li className="dh-listbox__status" role="presentation">
+                Loading…
+              </li>
+            ) : displayOptions.length === 0 ? (
+              <li className="dh-listbox__status" role="presentation">
+                {emptyMessage}
+              </li>
+            ) : (
+              displayOptions.map((option, index) => {
+                const selected = selectedValues.includes(option.value);
+                return (
+                  // Keyboard selection is handled on the combobox input via
+                  // aria-activedescendant (WAI-ARIA combobox); the option's
+                  // click/mousedown is the mouse path only.
+                  // eslint-disable-next-line jsx-a11y/click-events-have-key-events
+                  <li
+                    key={option.value}
+                    id={combobox.optionId(index)}
+                    role="option"
+                    aria-selected={selected}
+                    aria-disabled={option.disabled || undefined}
+                    className="dh-listbox__option"
+                    data-active={index === combobox.activeIndex || undefined}
+                    data-disabled={option.disabled || undefined}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseEnter={() => combobox.setActiveIndex(index)}
+                    onClick={() => {
+                      if (!option.disabled) commit(option.value);
+                    }}
+                  >
+                    <span
+                      className="dh-listbox__option-check"
+                      aria-hidden="true"
+                    >
+                      {selected ? "✓" : ""}
+                    </span>
+                    <span className="dh-listbox__option-body">
+                      <span className="dh-listbox__option-label">
+                        {option.label}
+                      </span>
+                      {option.description ? (
+                        <span className="dh-listbox__option-desc">
+                          {option.description}
+                        </span>
+                      ) : null}
+                    </span>
+                  </li>
+                );
+              })
+            )}
+          </ul>
+        ) : null}
+
+        {unavailableSingle ? (
+          <p className="dh-select__unavailable-note">
+            Current value <code>{unavailableSingle}</code> is no longer
+            available.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="dh-field__messages">
+        {help ? (
+          <p id={helpId} className="dh-field__help">
+            {help}
+          </p>
+        ) : null}
+        <div className="dh-field__error-slot" aria-live="polite">
+          {invalid ? (
+            <p id={errorId} className="dh-field__error">
+              <span className="dh-field__error-icon" aria-hidden="true">
+                !
+              </span>
+              {error}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
