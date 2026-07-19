@@ -282,6 +282,19 @@
 
 ---
 
+## Shared Forms & field controls evaluation (DS-06)
+
+Candidates considered for a shared forms system: **form/validation** — React Hook Form, Formik, TanStack Form, Zod-driven resolvers (all 🟢 MIT); **accessible combobox/listbox** — Radix UI, Downshift, React-Aria/React-Spectrum (all 🟢 MIT); **date** — `date-fns` (🟢 MIT). None was adopted.
+
+- **Form/validation libraries.** None offers the DS-06 requirement that matters most — a *declared* autosave-vs-explicit save model with a stale-safe autosave coordinator — and each would impose an API shape and a runtime dependency for problems a small typed core solves. **Rejected — build:** a framework-free validation/dirty/save-state/autosave model plus two hooks (`useForm`, `useAutosaveField`), consistent with the zero-dependency precedent ([ADR-017 §17.4](../decisions/ARCHITECTURE_DECISIONS.md#adr-017-design-tokens-and-the-shared-record-layout), [ADR-019](../decisions/ARCHITECTURE_DECISIONS.md#adr-019-shared-card-identity--reorder-and-the-filter-expression--url-contract)).
+- **Headless combobox libraries.** A focused `useCombobox` over a native input + `role="listbox"` meets the interaction and WCAG 2.2 AA bar for the select control and the entity-link picker at zero dependency. **Rejected — build (for now);** the door stays open to adopt one behind the same control API if requirements outgrow it.
+- **Date library.** Date-only values are compared as integers and datetime as explicit-UTC ISO strings — a few pure helpers, no library. **Rejected — build.**
+- **Markdown / EntityLinks.** Reused from the existing kernels (FND-08 `unified` pipeline via the `MarkdownContent` sink; FND-04 `EntityLinkRepository`) — no new dependency.
+
+**Decision (Depend / Adapt / Build).** **Build** the DalyHub-owned forms system (the React-free model, the field anatomy and controls, the two save hosts, the combobox, and the entity-agnostic entity-link picker + server service) on the existing stack; **reuse** the FND-08 Markdown pipeline and the FND-04 EntityLink kernel; **add no dependency**, no persistence and no migration. See [ADR-022](../decisions/ARCHITECTURE_DECISIONS.md#adr-022-shared-forms--field-controls--declared-save-model-validation-boundary-and-the-entity-link-picker).
+
+---
+
 ## Entry template
 
 Copy this to add a new reference product or building block:

@@ -28,9 +28,10 @@
 - **Desired future state.** Universal [Record Layout](../design/DESIGN_SYSTEM.md#record-header) (header + summary + tabs) across all entities.
 - **Related roadmap item.** [DS-02](../roadmap/ROADMAP_V2.md#-ds-02--shared-record-layout-header--summary--tabs).
 
-### ☐ DEBT-03 — Multiple save patterns (autosave vs. explicit vs. modal) — P1
+### ☑ DEBT-03 — Multiple save patterns (autosave vs. explicit vs. modal) — P1
 - **Current issue.** Different forms save differently; users can't predict whether edits persist. Erodes [trust](PRODUCT_PRINCIPLES.md#how-users-should-feel).
 - **Desired future state.** One [Forms](../design/DESIGN_SYSTEM.md#forms) system with a predictable save model per field type.
+- **Resolution.** [DS-06](../roadmap/ROADMAP_V2.md#-ds-06--shared-forms--field-controls) delivers ONE shared [forms system](../design/DESIGN_SYSTEM.md#shared-forms--field-controls-ds-06) in which the save mode is a **declared, visible part of the component contract**, never inferred: `useForm` for explicit Save/Cancel (dirty tracking, duplicate-submit prevention, draft preservation on failure, unsaved-navigation interception) and `useAutosaveField` for calm, deterministic autosave (`Unsaved`/`Saving`/`Saved`/`Couldn’t save`, stale-response-safe, retry). No modal-save pattern is introduced. The predictable model now exists design-system-wide; each product create/edit surface simply adopts it (there are no product forms today that still diverge).
 - **Related roadmap item.** [DS-06](../roadmap/ROADMAP_V2.md#-ds-06--shared-forms--field-controls).
 
 ### ☐ DEBT-04 — Filter inconsistencies across lists — P2
@@ -53,9 +54,10 @@
 - **Desired future state.** One [shared Activity model](../decisions/ARCHITECTURE_DECISIONS.md#adr-005-shared-activity-model) rendered as Timeline/Activity Feed everywhere.
 - **Related roadmap item.** [FND-05](../roadmap/ROADMAP_V2.md#-fnd-05--shared-activity-model) + [DS-05](../roadmap/ROADMAP_V2.md#-ds-05--shared-timeline--activity-feed).
 
-### ☐ DEBT-08 — Ad-hoc cross-entity links — P2
+### ◐ DEBT-08 — Ad-hoc cross-entity links — P2
 - **Current issue.** Relationships were modelled per-feature; links aren't bidirectional or universally visible.
 - **Desired future state.** Kernel [EntityLinks](../decisions/ARCHITECTURE_DECISIONS.md#adr-002-entitylinks) with a shared link picker and backlinks.
+- **Progress.** The kernel half is done: [FND-04](../roadmap/ROADMAP_V2.md#-fnd-04--entitylinks) provides typed, bidirectional EntityLinks stored once, and [DS-06](../roadmap/ROADMAP_V2.md#-ds-06--shared-forms--field-controls) adds the ONE shared, entity-agnostic **link picker** that creates/removes real EntityLinks through that kernel (proven bidirectionally in an integration test). **Still open:** a shared **backlinks** surface and actual product adoption — no product module yet renders links or backlinks, so relationships are not universally visible in the UI. Left as in-progress rather than resolved; it completes when modules adopt the picker and a backlinks view ships (no downstream product adoption has occurred yet).
 - **Related roadmap item.** [FND-04](../roadmap/ROADMAP_V2.md#-fnd-04--entitylinks) + [DS-06](../roadmap/ROADMAP_V2.md#-ds-06--shared-forms--field-controls).
 
 ### ☐ DEBT-09 — Legacy pages / old layouts outside the design system — P2

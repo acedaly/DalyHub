@@ -46,6 +46,7 @@ A future prompt should be as small as: **"Implement the next unchecked ROADMAP_V
 | [`development/MARKDOWN_PIPELINE.md`](development/MARKDOWN_PIPELINE.md) | The shared Markdown pipeline: source-of-truth & size limits, supported/unsupported profile, raw-HTML policy, sanitisation allowlist, URL & remote-image policy, code/task-list behaviour, the public API, the one React sink, Workers compatibility, and how Notes/Diary/descriptions consume it. |
 | [`development/APP_SHELL_AUTH.md`](development/APP_SHELL_AUTH.md) | The app shell & authentication: the request/auth flow, Cloudflare Access JWT validation, owner enforcement, session/identity types, authenticated workspace & Activity actor, development-auth mode, local setup, logout, the public `/health` boundary, registry-driven routing & navigation, theme behaviour, security headers, and the workers.dev/custom-domain deployment requirements. |
 | [`development/ACTIVITY_TIMELINE.md`](development/ACTIVITY_TIMELINE.md) | The Shared Timeline & Activity Feed (DS-05): one renderer for both scopes, the presentation view-model boundary, registering event descriptors, the unknown-type fallback, wiring a route, DS-07 filtering & DS-03 drawer reuse, ordering/grouping/dates, virtualisation, accessibility, and the development demonstration. |
+| [`development/SHARED_FORMS.md`](development/SHARED_FORMS.md) | The Shared Forms & field controls (DS-06): the React-free model boundary, the field contract & anatomy, layered validation, the declared explicit-save and autosave models, navigation safety, the Markdown source control, timezone-safe dates, the entity-link picker over the FND-04 repository, accessibility, and the development demonstration. |
 
 ---
 
@@ -81,7 +82,9 @@ A future prompt should be as small as: **"Implement the next unchecked ROADMAP_V
         ├── MODULES.md
         ├── SPINE_MODEL.md
         ├── MARKDOWN_PIPELINE.md
-        └── APP_SHELL_AUTH.md
+        ├── APP_SHELL_AUTH.md
+        ├── ACTIVITY_TIMELINE.md
+        └── SHARED_FORMS.md
 ```
 
 > Beyond `docs/`, the repository root now also carries the application itself
