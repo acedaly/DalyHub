@@ -15,6 +15,7 @@
 
 import { DrawerProvider } from "~/shared/drawer";
 
+import { formatTodayDate } from "../date";
 import { TODAY_FIXTURE } from "../fixtures";
 import { TodayDashboard } from "../TodayDashboard";
 import { createTodayDrawerRenderer } from "../TodayDrawer";
@@ -31,13 +32,9 @@ export function meta() {
 }
 
 export function loader() {
-  const date = new Intl.DateTimeFormat("en-AU", {
-    weekday: "long",
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  }).format(new Date());
-  return { date, data: TODAY_FIXTURE };
+  // Format in the owner's calendar timezone (not the UTC Worker runtime), so the
+  // date is correct across the UTC/AEST boundary. See `date.ts`.
+  return { date: formatTodayDate(new Date()), data: TODAY_FIXTURE };
 }
 
 const renderTodayDrawer = createTodayDrawerRenderer(TODAY_FIXTURE);

@@ -13,6 +13,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { DrawerProvider } from "~/shared/drawer";
+import type { DrawerEntry } from "~/shared/drawer";
 
 import { TODAY_FIXTURE } from "~/modules/today/fixtures";
 import { TodayDashboard } from "~/modules/today/TodayDashboard";
@@ -113,18 +114,34 @@ describe("TODAY-01 TodayDashboard", () => {
     expect(times).toEqual(["08:10", "09:00", "11:15", "13:00"]);
   });
 
-  it("quick capture is structured but does not persist", () => {
+  it("quick capture keeps the draft and states plainly it is not saved", () => {
     renderToday();
-    const field = screen.getByPlaceholderText("What needs your attention?");
+    const field = screen.getByPlaceholderText(
+      "What needs your attention?",
+    ) as HTMLTextAreaElement;
     const capture = screen.getByRole("button", { name: "Capture" });
-    // Disabled until there is something to capture.
+
+    // Blank submission remains prevented.
     expect(capture).toBeDisabled();
+
     fireEvent.change(field, { target: { value: "Call the plumber" } });
     expect(capture).toBeEnabled();
     fireEvent.click(capture);
-    // Field clears and a polite notice confirms — nothing is saved.
-    expect((field as HTMLTextAreaElement).value).toBe("");
-    expect(screen.getByRole("status")).toHaveTextContent(/Call the plumber/);
+
+    // The draft is preserved (nothing is stored, so nothing is discarded)...
+    expect(field.value).toBe("Call the plumber");
+    // ...and the notice states plainly that nothing was saved — never claiming
+    // the content was captured/saved/stored.
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent(/not connected/i);
+    expect(status).toHaveTextContent(/has not been saved/i);
+    expect(status.textContent ?? "").not.toMatch(
+      /\bcaptured\b|has been saved|was saved|stored/i,
+    );
+
+    // Editing the field clears the previous status message.
+    fireEvent.change(field, { target: { value: "Call the plumber tomorrow" } });
+    expect(screen.getByRole("status").textContent).toBe("");
   });
 
   it("opens a record in the Drawer when a card is activated", () => {
@@ -135,5 +152,14 @@ describe("TODAY-01 TodayDashboard", () => {
     expect(
       within(dialog).getByRole("heading", { level: 3, name: "Finish PX-02" }),
     ).toBeInTheDocument();
+  });
+
+  it("labels a deadline as Deadline in the drawer (matching its card)", () => {
+    const renderDrawer = createTodayDrawerRenderer(TODAY_FIXTURE);
+    const result = renderDrawer({ key: "upcoming:u-contract" } as DrawerEntry);
+    expect(result).not.toBeNull();
+    render(<MemoryRouter>{result?.children}</MemoryRouter>);
+    expect(screen.getByText("Deadline")).toBeInTheDocument();
+    expect(screen.queryByText("Reminder")).not.toBeInTheDocument();
   });
 });

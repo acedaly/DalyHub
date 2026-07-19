@@ -30,10 +30,8 @@ import type { CardProps } from "~/shared/card";
 import { CollectionLayout } from "~/shared/collection-layout";
 import { useDrawer, withDrawerPushed } from "~/shared/drawer";
 import { EntityIcon } from "~/shared/entity";
-import type { EntityType } from "~/shared/entity";
-import { EmptyState } from "~/shared/empty-state";
-import { InboxIcon } from "~/shared/icons";
 
+import { UPCOMING_KIND } from "./fixtures";
 import type {
   ActiveProject,
   RecentNote,
@@ -47,16 +45,6 @@ export type TodayDashboardProps = {
   readonly data: TodayData;
   /** The formatted current date, rendered as the pane-header subtitle. */
   readonly date: string;
-};
-
-/** Map an upcoming item's kind to a display label and an identity glyph. */
-const UPCOMING_IDENTITY: Record<
-  UpcomingItem["kind"],
-  { readonly label: string; readonly entity: EntityType }
-> = {
-  meeting: { label: "Meeting", entity: "meeting" },
-  reminder: { label: "Reminder", entity: "task" },
-  deadline: { label: "Deadline", entity: "task" },
 };
 
 const PROJECT_STATUS: Record<ActiveProject["status"], CardProps["status"]> = {
@@ -136,23 +124,18 @@ export function TodayDashboard({ data, date }: TodayDashboardProps) {
 
   const onCapture = (event: React.FormEvent) => {
     event.preventDefault();
-    const value = draft.trim();
-    if (value === "") {
+    if (draft.trim() === "") {
       return;
     }
-    // TODAY-01 is fixture-only: capture does not persist, parse or call AI. It
-    // clears the field and confirms via a live region — the structure a future
-    // Quick Capture (Tasks/Inbox) will connect to.
-    setDraft("");
-    setCaptureNotice(`Captured "${value}". Saving arrives when Tasks connect.`);
+    // TODAY-01 is fixture-only: Quick Capture is NOT connected — nothing is
+    // persisted, parsed or sent to AI. Crucially we do NOT clear the draft (that
+    // would silently discard the owner's unsaved text) and we never claim it was
+    // captured/saved. We just tell the truth; the field stays editable. The
+    // future persistence implementation (Tasks/Inbox) plugs in here.
+    setCaptureNotice(
+      "Quick Capture is not connected yet. Your draft has not been saved.",
+    );
   };
-
-  const isEmpty =
-    data.focus.length === 0 &&
-    upcoming.length === 0 &&
-    data.projects.length === 0 &&
-    data.notes.length === 0 &&
-    timeline.length === 0;
 
   const taskCard = (task: (typeof data.focus)[number]): CardProps => {
     const done = doneIds.has(task.id);
@@ -179,7 +162,7 @@ export function TodayDashboard({ data, date }: TodayDashboardProps) {
   };
 
   const upcomingCard = (item: UpcomingItem): CardProps => {
-    const identity = UPCOMING_IDENTITY[item.kind];
+    const identity = UPCOMING_KIND[item.kind];
     return {
       id: item.id,
       title: item.title,
@@ -224,27 +207,14 @@ export function TodayDashboard({ data, date }: TodayDashboardProps) {
   });
 
   return (
+    // The Today dashboard is a multi-section surface, not a single filtered
+    // collection: each section renders its own gentle empty note (so nothing is
+    // ever blank) and Quick Capture stays mounted and usable even when every data
+    // section is empty — so we do NOT gate the whole surface behind an empty slot
+    // (which would unmount the capture field and strand a first-time owner).
     <CollectionLayout
       title="Today"
-      entityType={undefined}
       subtitle={date}
-      isEmpty={isEmpty}
-      emptySlot={
-        <EmptyState
-          icon={<InboxIcon />}
-          title="Nothing for today yet"
-          description="Tasks, meetings and notes you plan will gather here each morning."
-          primaryAction={
-            <button
-              type="button"
-              className="dh-today__primary"
-              onClick={focusCapture}
-            >
-              Quick capture
-            </button>
-          }
-        />
-      }
       primaryAction={
         <button
           type="button"

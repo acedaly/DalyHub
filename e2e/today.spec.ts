@@ -68,10 +68,11 @@ test.describe("TODAY-01 — desktop", () => {
       .fill("Call the plumber");
     await expect(capture).toBeEnabled();
     await capture.click();
-    await expect(page.getByRole("status")).toContainText(/Call the plumber/);
+    // Nothing is stored, so the draft is preserved and the notice says so plainly.
+    await expect(page.getByRole("status")).toContainText(/has not been saved/i);
     await expect(
       page.getByPlaceholder("What needs your attention?"),
-    ).toHaveValue("");
+    ).toHaveValue("Call the plumber");
   });
 
   test("opens a record in the Drawer over the pane", async ({ page }) => {

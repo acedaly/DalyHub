@@ -14,6 +14,7 @@ import { EntityIcon } from "~/shared/entity";
 import type { DrawerEntry, DrawerRenderResult } from "~/shared/drawer";
 import { RecordContent, RecordLayout } from "~/shared/record-layout";
 
+import { UPCOMING_KIND } from "./fixtures";
 import type { TodayData } from "./fixtures";
 
 function splitKey(key: string): { readonly kind: string; readonly id: string } {
@@ -64,6 +65,9 @@ export function createTodayDrawerRenderer(data: TodayData) {
     if (kind === "upcoming") {
       const item = data.upcoming.find((row) => row.id === id);
       if (!item) return null;
+      // Label all three kinds explicitly (a deadline reads "Deadline", not
+      // "Reminder") — the same map the card uses, so they never disagree.
+      const identity = UPCOMING_KIND[item.kind];
       return {
         title: item.title,
         description: "Upcoming item",
@@ -71,10 +75,8 @@ export function createTodayDrawerRenderer(data: TodayData) {
           <RecordLayout
             title={item.title}
             headingLevel={3}
-            typeLabel={item.kind === "meeting" ? "Meeting" : "Reminder"}
-            icon={
-              <EntityIcon type={item.kind === "meeting" ? "meeting" : "task"} />
-            }
+            typeLabel={identity.label}
+            icon={<EntityIcon type={identity.entity} />}
             summary={{
               metadata: [
                 { id: "when", label: "When", value: item.when },

@@ -15,6 +15,8 @@
  * `sortKey`, it never trusts array order.
  */
 
+import type { EntityType } from "~/shared/entity";
+
 /** A pinned/focus task for today. Completion is local, optimistic UI only. */
 export interface FocusTask {
   readonly id: string;
@@ -35,6 +37,20 @@ export interface UpcomingItem {
   /** Optional context line (people, project, …). */
   readonly context?: string;
 }
+
+/**
+ * The display identity of each upcoming kind — its type label and identity glyph.
+ * Defined once so the Card and the Drawer agree (a deadline reads "Deadline" in
+ * both places, never "Reminder" after opening it).
+ */
+export const UPCOMING_KIND: Record<
+  UpcomingItem["kind"],
+  { readonly label: string; readonly entity: EntityType }
+> = {
+  meeting: { label: "Meeting", entity: "meeting" },
+  reminder: { label: "Reminder", entity: "task" },
+  deadline: { label: "Deadline", entity: "task" },
+};
 
 /** A recently-active project shown under "Continue working". */
 export interface ActiveProject {

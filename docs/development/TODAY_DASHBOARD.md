@@ -34,9 +34,16 @@ the quick-capture draft).
 
 - **Frame.** The PX-02 [`CollectionLayout`](../../app/shared/collection-layout)
   owns the sticky **Pane Header** (title `Today`, subtitle = the date, one accent
-  primary action **Quick capture**) and the pane's scroll + state precedence. The
-  shared [`EmptyState`](../../app/shared/empty-state) guards the whole surface, so
-  it can never render a blank region (PRODUCT_EXPERIENCE Part IV §5).
+  primary action **Quick capture**) and the pane's scroll + state precedence.
+- **Date.** The subtitle is the owner's *calendar* date, formatted in the owner's
+  timezone (`Australia/Sydney`, `en-AU`) by [`date.ts`](../../app/modules/today/date.ts)
+  — not the UTC Worker runtime, which would show the previous day during the
+  Australian morning. This becomes a user/workspace timezone setting at SET-01.
+- **Never blank.** This is a multi-section surface, not a single filtered
+  collection, so it does **not** gate itself behind the CollectionLayout empty
+  slot (that would unmount Quick Capture when every data section is empty and
+  strand a first-time owner). Each section renders its own gentle empty note, so
+  nothing is ever blank, and Quick Capture is always mounted and usable.
 - **Sections.** Six vertical `section`s, each a labelled region with a quiet
   `xs`-muted section label:
 
@@ -62,8 +69,12 @@ TODAY-01 builds **only component structure over fixtures**: no repositories, D1,
 Workers, APIs, AI/OpenAI, persistence, authentication change, search, command
 palette, diary, task, meeting or reminder implementation.
 
-- **Quick capture** clears the field and confirms via a polite live region; it
-  does not persist, parse or call AI.
+- **Quick capture** is not connected. Submitting a non-empty draft **keeps** the
+  text (nothing is stored, so clearing would silently discard it) and a polite
+  live region states plainly *"Quick Capture is not connected yet. Your draft has
+  not been saved."* — it never claims the content was captured, saved or stored.
+  Editing the field clears that notice. The header's Quick capture action focuses
+  and scrolls to the field. It does not persist, parse or call AI.
 - **Complete/reopen** is optimistic, in-memory only.
 - The **Daily timeline** is the day's fixture schedule rendered as a simple
   chronological list. The shared Activity **Timeline** (rendering the FND-05
