@@ -39,6 +39,7 @@ export type {
   CommandContribution,
   SearchQuery,
   SearchResultItem,
+  SearchResultTarget,
   SearchExecutor,
   SearchProviderContribution,
   SettingValueType,

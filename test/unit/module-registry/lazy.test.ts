@@ -110,7 +110,7 @@ describe("lazy behaviour", () => {
                 {
                   id: "n1",
                   title: `match for ${query.text}`,
-                  navigateTo: "/notes/n1",
+                  target: { kind: "route", to: "/notes/n1" },
                 },
               ];
             },
