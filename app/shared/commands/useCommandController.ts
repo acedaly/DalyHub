@@ -9,7 +9,8 @@
  * REUSES DS-08's `useSearchController` for record search rather than building a
  * second search (ADR-024 §24.11); a partial or total Search failure never disables
  * commands. Recent commands are remembered IN MEMORY for the session only — never
- * persisted (ADR-024 §24.10).
+ * persisted (ADR-024 §24.10) — and the store lives on `CommandContextProvider`, not
+ * this hook, so it survives the palette unmounting on close.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -24,6 +25,7 @@ import {
 import { isExecutableQuery } from "~/shared/search/model";
 
 import { appActionToPaletteCommand, type AppAction } from "./action";
+import { useCommandRecents } from "./CommandContextProvider";
 import {
   catalogueEntryToPaletteCommand,
   clampActiveIndex,
@@ -169,7 +171,16 @@ export function useCommandController(
   const searchClear = searchController.clear;
 
   /* ------------------------------ Recents ------------------------------- */
-  const recentRef = useRef<string[]>([]);
+  // Recents live on the provider (session-scoped) so they survive the palette
+  // unmounting on close; a local ref is only a fallback when no provider is
+  // present (e.g. an isolated controller test). See ADR-024 §24.10.
+  const recentsStore = useCommandRecents();
+  const localRecentRef = useRef<readonly string[]>([]);
+  const getRecentIds = useCallback(
+    (): readonly string[] =>
+      recentsStore ? recentsStore.getRecentIds() : localRecentRef.current,
+    [recentsStore],
+  );
 
   /* -------------------------- Merged palette view ----------------------- */
   const paletteCommands = useMemo<readonly PaletteCommand[]>(() => {
@@ -183,9 +194,9 @@ export function useCommandController(
     const ranked = rankCommands(query, paletteCommands, context);
     return groupCommands(ranked, {
       hasQuery,
-      recentIds: recentRef.current,
+      recentIds: getRecentIds(),
     });
-  }, [query, paletteCommands, context, hasQuery]);
+  }, [query, paletteCommands, context, hasQuery, getRecentIds]);
 
   const showSearchGroups = hasQuery && searchController.resultsAreCurrent;
   const searchGroups = showSearchGroups
@@ -299,13 +310,19 @@ export function useCommandController(
     );
   }, [query]);
 
-  const rememberRecent = useCallback((commandId: string) => {
-    const next = [
-      commandId,
-      ...recentRef.current.filter((id) => id !== commandId),
-    ].slice(0, MAX_RECENT_COMMANDS);
-    recentRef.current = next;
-  }, []);
+  const rememberRecent = useCallback(
+    (commandId: string) => {
+      if (recentsStore) {
+        recentsStore.remember(commandId);
+        return;
+      }
+      localRecentRef.current = [
+        commandId,
+        ...localRecentRef.current.filter((id) => id !== commandId),
+      ].slice(0, MAX_RECENT_COMMANDS);
+    },
+    [recentsStore],
+  );
 
   const navigateToTarget = useCallback(
     (target: Parameters<typeof buildResultDestination>[0]) => {

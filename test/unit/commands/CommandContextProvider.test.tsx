@@ -4,9 +4,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   CommandContextProvider,
+  useCommandRecents,
   useContextualActions,
   useRegisterContextualActions,
   type AppAction,
+  type CommandRecents,
 } from "~/shared/commands";
 
 const okRun = () => ({ ok: true as const });
@@ -108,5 +110,59 @@ describe("CommandContextProvider", () => {
   it("returns an empty list with no provider", () => {
     render(<Observer />);
     expect(observed).toEqual([]);
+  });
+
+  it("keeps recent commands on the provider so they survive a consumer unmount", () => {
+    const held: { store: CommandRecents | null } = { store: null };
+    function Reader() {
+      held.store = useCommandRecents();
+      return null;
+    }
+    const { rerender } = render(
+      <CommandContextProvider>
+        <Reader />
+      </CommandContextProvider>,
+    );
+    expect(held.store).not.toBeNull();
+
+    // Record two recents: most-recent first, deduped on repeat.
+    act(() => held.store?.remember("today.open"));
+    act(() => held.store?.remember("projects.open"));
+    act(() => held.store?.remember("today.open"));
+    expect(held.store?.getRecentIds()).toEqual(["today.open", "projects.open"]);
+
+    // AppShell unmounts the palette (the consumer) on close…
+    rerender(
+      <CommandContextProvider>
+        <span />
+      </CommandContextProvider>,
+    );
+    // …and remounts it on the next open: the provider outlives it, so the
+    // recent/suggested ordering is still there (the pre-fix controller ref reset).
+    rerender(
+      <CommandContextProvider>
+        <Reader />
+      </CommandContextProvider>,
+    );
+    expect(held.store?.getRecentIds()).toEqual(["today.open", "projects.open"]);
+  });
+
+  it("bounds recents to the most-recent five", () => {
+    const held: { store: CommandRecents | null } = { store: null };
+    function Reader() {
+      held.store = useCommandRecents();
+      return null;
+    }
+    render(
+      <CommandContextProvider>
+        <Reader />
+      </CommandContextProvider>,
+    );
+    act(() => {
+      for (const id of ["a", "b", "c", "d", "e", "f", "g"]) {
+        held.store?.remember(id);
+      }
+    });
+    expect(held.store?.getRecentIds()).toEqual(["g", "f", "e", "d", "c"]);
   });
 });

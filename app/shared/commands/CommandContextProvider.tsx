@@ -23,11 +23,12 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 
-import { MAX_CONTEXTUAL_ACTIONS } from "./limits";
+import { MAX_CONTEXTUAL_ACTIONS, MAX_RECENT_COMMANDS } from "./limits";
 import type { AppAction } from "./action";
 
 /**
@@ -49,7 +50,24 @@ const ContextualActionsListContext = createContext<readonly AppAction[]>(
   Object.freeze([]),
 );
 
+/**
+ * Recent-command ordering is session UI state that must OUTLIVE the palette:
+ * AppShell unmounts `CommandPalette` (and its controller) on every close, so a
+ * controller-owned recents ref would reset before the next open, and the
+ * documented recent/suggested ordering (ADR-024 §24.10) would never be seen. This
+ * store lives on the provider (mounted once at AppShell) instead. It is a ref with
+ * STABLE accessors — recording a recent must not re-render the whole app subtree —
+ * and the palette reads the current list fresh each time it opens.
+ */
+type CommandRecents = {
+  readonly getRecentIds: () => readonly string[];
+  readonly remember: (commandId: string) => void;
+};
+
+const CommandRecentsContext = createContext<CommandRecents | null>(null);
+
 const EMPTY_ACTIONS: readonly AppAction[] = Object.freeze([]);
+const EMPTY_ACTIONS_IDS: readonly string[] = Object.freeze([]);
 
 /** Flatten registrations deterministically, deduping ids and bounding the total. */
 function flatten(
@@ -107,11 +125,30 @@ export function CommandContextProvider({
     [register, unregister],
   );
 
+  // Session-scoped recents, held on the provider so they survive palette
+  // open/close. Ref-backed with stable accessors — recording a recent never
+  // re-renders the app; the palette reads the current list when it next opens.
+  const recentsRef = useRef<readonly string[]>(EMPTY_ACTIONS_IDS);
+  const recents = useMemo<CommandRecents>(
+    () => ({
+      getRecentIds: () => recentsRef.current,
+      remember: (commandId: string) => {
+        recentsRef.current = [
+          commandId,
+          ...recentsRef.current.filter((id) => id !== commandId),
+        ].slice(0, MAX_RECENT_COMMANDS);
+      },
+    }),
+    [],
+  );
+
   return (
     <ContextualRegistryContext.Provider value={registry}>
-      <ContextualActionsListContext.Provider value={actions}>
-        {children}
-      </ContextualActionsListContext.Provider>
+      <CommandRecentsContext.Provider value={recents}>
+        <ContextualActionsListContext.Provider value={actions}>
+          {children}
+        </ContextualActionsListContext.Provider>
+      </CommandRecentsContext.Provider>
     </ContextualRegistryContext.Provider>
   );
 }
@@ -151,3 +188,14 @@ export function useRegisterContextualActions(
 export function useContextualActions(): readonly AppAction[] {
   return useContext(ContextualActionsListContext) ?? EMPTY_ACTIONS;
 }
+
+/**
+ * The session-scoped recent-command store (or null with no provider). It survives
+ * the palette unmounting on close, so recent/suggested ordering is visible across
+ * openings.
+ */
+export function useCommandRecents(): CommandRecents | null {
+  return useContext(CommandRecentsContext);
+}
+
+export type { CommandRecents };

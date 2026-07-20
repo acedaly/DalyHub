@@ -15,6 +15,8 @@ export {
   CommandContextProvider,
   useContextualActions,
   useRegisterContextualActions,
+  useCommandRecents,
+  type CommandRecents,
 } from "./CommandContextProvider";
 export {
   appActionToPaletteCommand,
