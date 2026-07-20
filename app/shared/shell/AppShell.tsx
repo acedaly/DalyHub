@@ -26,10 +26,8 @@ import type { NavigationItem } from "~/platform/modules/navigation-adapter";
 // does NOT eagerly pull the palette controller / DS-08 Search UI into the initial
 // bundle — the palette itself stays lazy-loaded (ADR-024 §24.13).
 import { CommandContextProvider } from "~/shared/commands/CommandContextProvider";
-import {
-  useCommandShortcuts,
-  type ShortcutBinding,
-} from "~/shared/commands/useCommandShortcuts";
+import { CommandShortcutLayer } from "~/shared/commands/CommandShortcutLayer";
+import type { ShortcutBinding } from "~/shared/commands/useCommandShortcuts";
 
 import { MobileNav } from "./MobileNav";
 import { MenuIcon } from "~/shared/icons";
@@ -122,11 +120,12 @@ export function AppShell({
     openCommand();
   }, [openCommand]);
 
-  // ONE shared dispatcher owns the reserved global shortcuts (ADR-024 §24.13):
-  // `Mod+K` toggles the Command Palette (permitted even while typing) and `/`
-  // focuses Search (ignored while typing, preserving DS-08 behaviour). There is no
-  // per-command document listener.
-  const shortcuts = useMemo<ShortcutBinding[]>(
+  // The reserved global shortcuts (ADR-024 §24.13): `Mod+K` toggles the Command
+  // Palette (permitted even while typing) and `/` focuses Search (ignored while
+  // typing, preserving DS-08 behaviour). CommandShortcutLayer installs the ONE
+  // shared dispatcher for these plus any declared NAVIGATION command shortcuts —
+  // there is never a per-command document listener.
+  const reservedShortcuts = useMemo<ShortcutBinding[]>(
     () => [
       {
         shortcut: { key: "k", modifiers: ["mod"] },
@@ -137,10 +136,10 @@ export function AppShell({
     ],
     [toggleCommand, openSearch],
   );
-  useCommandShortcuts(shortcuts);
 
   return (
     <CommandContextProvider>
+      <CommandShortcutLayer reserved={reservedShortcuts} />
       <div className="dh-app">
         <a className="skip-link" href="#main-content">
           Skip to main content

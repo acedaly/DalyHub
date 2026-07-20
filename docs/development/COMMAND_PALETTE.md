@@ -196,6 +196,25 @@ auto-repeat, resolves collisions by precedence (one event → one action), and
 | `?` | Shortcuts overlay (reserved) |
 | `[` | Sidebar (reserved) |
 
+### Command-declared shortcuts (navigation dispatched; executable deferred)
+
+`CommandShortcutLayer` installs that single dispatcher app-wide (mounted once inside
+`CommandContextProvider`) with the reserved bindings **plus** the shortcuts declared
+by commands that navigate — both registered `navigate` commands (from the `/commands`
+catalogue) and contextual `navigate` actions. A declared navigation shortcut
+therefore actually navigates, not just shows a hint. Precedence is deterministic:
+reserved → contextual → registered, so one key event still fires at most one action;
+a disabled action yields an `enabled: false` binding and never fires.
+
+**Executable** command / contextual-run shortcuts are intentionally NOT dispatched
+globally yet: firing one with the palette closed runs it through the authenticated
+boundary and needs a pending/success/failure surface *outside* the palette — the
+DS-10 global feedback surface, which DS-09 excludes. Their palette hints remain;
+global dispatch of executable shortcuts lands with DS-10. Wiring navigation
+shortcuts loads the catalogue in the always-on shell (a deliberate, documented
+departure from the otherwise fully-lazy palette posture — it pulls only the small
+catalogue transport and the pure navigation helper, never the palette UI).
+
 Modules extend the vocabulary; they never reassign a reserved shortcut (the kernel
 refuses it).
 
