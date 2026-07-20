@@ -68,7 +68,7 @@
   align-items: center;
   justify-content: center;
   min-width: var(--dh-touch-target-min);
-  min-height: 2rem;
+  min-height: var(--dh-touch-target-min);
   padding: 0 var(--dh-space-2);
   font-size: var(--dh-font-size-xs);
   font-weight: var(--dh-font-weight-medium);
@@ -319,7 +319,11 @@
 }
 
 .dh-command__retry {
-  min-height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--dh-touch-target-min);
+  min-width: var(--dh-touch-target-min);
   padding: 0 var(--dh-space-3);
   color: var(--dh-color-on-accent);
   background: var(--dh-color-accent);

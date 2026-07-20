@@ -154,6 +154,17 @@ describe("CommandPalette", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("renders a keyboard-focusable close button that closes the palette", () => {
+    const { onClose } = renderPalette({});
+    const close = screen.getByRole("button", { name: "Close command palette" });
+    // The larger 44px hit area is a real, focusable button (pixel size is asserted
+    // in the Playwright touch-target regression, which measures real layout).
+    close.focus();
+    expect(close).toHaveFocus();
+    fireEvent.click(close);
+    expect(onClose).toHaveBeenCalled();
+  });
+
   it("shows contextual actions in a Current context group", async () => {
     renderPalette({
       contextual: [
@@ -227,7 +238,12 @@ describe("CommandPalette", () => {
     await optionByTitle("Reindex the workspace");
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(screen.getByText("Nope.")).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    const retry = screen.getByRole("button", { name: "Retry" });
+    // The recovery control is a real, keyboard-focusable button (its 44px touch
+    // target is asserted by the Playwright regression against real layout).
+    retry.focus();
+    expect(retry).toHaveFocus();
+    fireEvent.click(retry);
     await waitFor(() => expect(execute).toHaveBeenCalledTimes(2));
   });
 

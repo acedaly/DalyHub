@@ -344,3 +344,44 @@ test.describe("DS-09 Command Palette — execution & failure states (design fixt
     await expect(proof.getByText(/Starred/)).toBeVisible();
   });
 });
+
+test.describe("DS-09 Command Palette — touch targets (mobile 44px)", () => {
+  test.use({ viewport: { width: 320, height: 720 } });
+
+  /** Assert a control's real rendered bounding box meets the 44×44px minimum. */
+  async function expectMin44(locator: ReturnType<Page["getByRole"]>) {
+    await expect(locator).toBeVisible();
+    const box = await locator.boundingBox();
+    expect(box).not.toBeNull();
+    if (box === null) {
+      return;
+    }
+    // WCAG 2.2 target size (`--dh-touch-target-min` = 2.75rem = 44px). Allow a
+    // half-pixel tolerance for sub-pixel rounding (a 44px box can measure 43.999…).
+    expect(box.width).toBeGreaterThanOrEqual(43.5);
+    expect(box.height).toBeGreaterThanOrEqual(43.5);
+  }
+
+  test("the close control has a 44×44px touch target", async ({ page }) => {
+    await page.goto("/today");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "Open navigation" }).click();
+    await commandTrigger(page).click();
+    await expect(palette(page)).toBeVisible();
+    await expectMin44(
+      page.getByRole("button", { name: "Close command palette" }),
+    );
+  });
+
+  test("the Retry control has a 44×44px touch target", async ({ page }) => {
+    await page.goto("/design/command-palette");
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "Failure", exact: true }).click();
+    await page.getByRole("button", { name: "Open Command Palette" }).click();
+    const input = palette(page);
+    await input.fill("reindex");
+    await expect(option(page, /Reindex the workspace/)).toBeVisible();
+    await input.press("Enter");
+    await expectMin44(page.getByRole("button", { name: "Retry" }));
+  });
+});
