@@ -88,6 +88,43 @@ describe("DS-10b ConfirmationDialog", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  // Regression: the scrim must NOT be inerted, or its outside-click cancel is dead.
+  it("inerts the background while keeping the scrim and panel interactive", async () => {
+    render(<Harness onConfirm={() => Promise.resolve()} />);
+    const trigger = screen.getByRole("button", { name: "Open" });
+    fireEvent.click(trigger);
+    await screen.findByRole("dialog");
+    // The background (the trigger, a sibling of the dialog root) is inert.
+    expect(trigger.hasAttribute("inert")).toBe(true);
+    // The scrim stays interactive — it is still in the a11y tree (an inert
+    // element would be removed, so this query would fail), and it is not inert.
+    const scrim = screen.getByRole("button", { name: "Dismiss dialog" });
+    expect(scrim.hasAttribute("inert")).toBe(false);
+    // The dialog panel is not inert either.
+    expect(screen.getByRole("dialog").hasAttribute("inert")).toBe(false);
+  });
+
+  it("closes when the scrim (outside) is clicked", async () => {
+    render(<Harness onConfirm={() => Promise.resolve()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    await screen.findByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss dialog" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("traps Tab focus within the panel after the inert change", async () => {
+    render(<Harness onConfirm={() => Promise.resolve()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    const cancel = await screen.findByRole("button", { name: "Cancel" });
+    await waitFor(() => expect(cancel).toHaveFocus());
+    // Shift+Tab from the first focusable wraps to the last within the panel —
+    // it never escapes to the (inert) background trigger.
+    fireEvent.keyDown(cancel, { key: "Tab", shiftKey: true });
+    expect(
+      screen.getByRole("button", { name: "Delete workspace" }),
+    ).toHaveFocus();
+  });
+
   it("runs onConfirm and closes on success", async () => {
     const onConfirm = vi.fn(() => Promise.resolve());
     render(<Harness onConfirm={onConfirm} />);
