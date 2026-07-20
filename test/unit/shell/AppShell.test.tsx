@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { createRoutesStub, Outlet } from "react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { NavigationItem } from "~/platform/modules/navigation-adapter";
 import { AppShell } from "~/shared/shell/AppShell";
@@ -41,6 +41,23 @@ const NAVIGATION: readonly NavigationItem[] = [
     entityType: "task",
   },
 ];
+
+// The shell installs CommandShortcutLayer, which fetches the `/commands` catalogue
+// on mount. Stub it with an empty catalogue so tests never touch a real socket.
+let originalFetch: typeof globalThis.fetch;
+beforeEach(() => {
+  originalFetch = globalThis.fetch;
+  globalThis.fetch = vi.fn(
+    async () =>
+      new Response(JSON.stringify({ commands: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+  ) as typeof globalThis.fetch;
+});
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+});
 
 function renderShell(initialPath = "/") {
   const Placeholder = () => (

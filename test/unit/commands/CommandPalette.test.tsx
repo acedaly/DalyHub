@@ -1,0 +1,505 @@
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+import { MemoryRouter } from "react-router";
+import { describe, expect, it, vi } from "vitest";
+
+import CommandPalette from "~/shared/commands/CommandPalette";
+import {
+  CommandContextProvider,
+  useRegisterContextualActions,
+  type AppAction,
+} from "~/shared/commands";
+import { assembleOutcome } from "~/shared/search/model";
+import type { CommandCatalogue } from "~/shared/commands/model";
+import type { SearchFn } from "~/shared/search";
+
+const CATALOGUE: CommandCatalogue = {
+  commands: [
+    {
+      id: "today.open",
+      moduleId: "today",
+      moduleLabel: "Today",
+      title: "Go to Today",
+      keywords: ["home"],
+      kind: "navigate",
+      target: { kind: "route", to: "/today" },
+    },
+    {
+      id: "demo.reindex",
+      moduleId: "demo",
+      moduleLabel: "Demo",
+      title: "Reindex the workspace",
+      keywords: ["rebuild"],
+      kind: "execute",
+    },
+  ],
+};
+
+const healthySearch: SearchFn = async (query) =>
+  assembleOutcome(query, [
+    {
+      providerId: "tasks.search",
+      moduleId: "tasks",
+      moduleLabel: "Tasks",
+      ok: true,
+      items: [
+        {
+          id: "t1",
+          title: "Finish PX-02",
+          entityType: "task",
+          target: {
+            kind: "drawer",
+            drawerKey: "task:t1",
+            canonicalPath: "/today",
+          },
+        },
+      ],
+    },
+  ]);
+
+const partialSearch: SearchFn = async (query) =>
+  assembleOutcome(query, [
+    {
+      providerId: "tasks.search",
+      moduleId: "tasks",
+      moduleLabel: "Tasks",
+      ok: true,
+      items: [
+        {
+          id: "t1",
+          title: "Finish PX-02",
+          entityType: "task",
+          target: { kind: "route", to: "/today" },
+        },
+      ],
+    },
+    {
+      providerId: "x.search",
+      moduleId: "x",
+      moduleLabel: "X",
+      ok: false,
+      items: [],
+    },
+  ]);
+
+function Ctx({ actions }: { readonly actions: readonly AppAction[] }) {
+  useRegisterContextualActions(actions);
+  return null;
+}
+
+// An empty record-search by default, so command-only tests never hit the network.
+const emptySearch: SearchFn = async (query) => assembleOutcome(query, []);
+
+function renderPalette(options: {
+  onClose?: () => void;
+  catalogue?: () => Promise<CommandCatalogue>;
+  search?: SearchFn;
+  execute?: (id: string, signal: AbortSignal) => Promise<{ ok: boolean }>;
+  contextual?: readonly AppAction[];
+}) {
+  const onClose = options.onClose ?? vi.fn();
+  const catalogue = options.catalogue ?? (async () => CATALOGUE);
+  render(
+    <MemoryRouter initialEntries={["/projects"]}>
+      <CommandContextProvider>
+        {options.contextual ? <Ctx actions={options.contextual} /> : null}
+        <CommandPalette
+          onClose={onClose}
+          opener={null}
+          catalogue={catalogue}
+          debounceMs={0}
+          search={options.search ?? emptySearch}
+          {...(options.execute
+            ? {
+                execute: options.execute as (
+                  id: string,
+                  s: AbortSignal,
+                ) => Promise<never>,
+              }
+            : {})}
+        />
+      </CommandContextProvider>
+    </MemoryRouter>,
+  );
+  return { onClose };
+}
+
+/** Find a palette option by its title (robust to `<mark>` highlight splitting). */
+function optionByTitle(title: string) {
+  return screen.findByRole("option", {
+    name: new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),
+  });
+}
+
+describe("CommandPalette", () => {
+  it("opens, focuses the input and lists registered commands on typing", async () => {
+    renderPalette({});
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    await waitFor(() => expect(input).toHaveFocus());
+    fireEvent.change(input, { target: { value: "reindex" } });
+    await optionByTitle("Reindex the workspace");
+    expect(screen.getByText("Actions")).toBeInTheDocument();
+  });
+
+  it("closes on Escape", () => {
+    const { onClose } = renderPalette({});
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("renders a keyboard-focusable close button that closes the palette", () => {
+    const { onClose } = renderPalette({});
+    const close = screen.getByRole("button", { name: "Close command palette" });
+    // The larger 44px hit area is a real, focusable button (pixel size is asserted
+    // in the Playwright touch-target regression, which measures real layout).
+    close.focus();
+    expect(close).toHaveFocus();
+    fireEvent.click(close);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("shows contextual actions in a Current context group", async () => {
+    renderPalette({
+      contextual: [
+        {
+          id: "ctx.a",
+          title: "Tidy view",
+          kind: "run",
+          run: () => ({ ok: true }),
+        },
+      ],
+    });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "tidy" } });
+    await optionByTitle("Tidy view");
+    expect(screen.getByText("Current context")).toBeInTheDocument();
+  });
+
+  it("navigates and closes when a navigation command is activated", async () => {
+    const { onClose } = renderPalette({});
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "Go to Today" } });
+    await optionByTitle("Go to Today");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("runs an executable command and shows an inline success message", async () => {
+    const execute = vi.fn(async () => ({ ok: true, message: "Reindexed." }));
+    renderPalette({ execute });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "reindex" } });
+    await optionByTitle("Reindex the workspace");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(screen.getAllByText("Reindexed.").length).toBeGreaterThan(0),
+    );
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks a duplicate activation while pending", async () => {
+    const execute = vi.fn(() => new Promise<{ ok: boolean }>(() => {}));
+    renderPalette({ execute });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "reindex" } });
+    await optionByTitle("Reindex the workspace");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(screen.getByText("Running…")).toBeInTheDocument(),
+    );
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a retryable failure and re-invokes on retry", async () => {
+    const execute = vi
+      .fn()
+      .mockResolvedValue({ ok: false, reason: "failed", message: "Nope." });
+    renderPalette({ execute });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "reindex" } });
+    await optionByTitle("Reindex the workspace");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(screen.getByText("Nope.")).toBeInTheDocument());
+    const retry = screen.getByRole("button", { name: "Retry" });
+    // The recovery control is a real, keyboard-focusable button (its 44px touch
+    // target is asserted by the Playwright regression against real layout).
+    retry.focus();
+    expect(retry).toHaveFocus();
+    fireEvent.click(retry);
+    await waitFor(() => expect(execute).toHaveBeenCalledTimes(2));
+  });
+
+  it("merges DS-08 record results and keeps commands usable on partial failure", async () => {
+    renderPalette({ search: partialSearch });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "Finish" } });
+    await optionByTitle("Finish PX-02");
+    expect(screen.getByText(/didn.t respond/i)).toBeInTheDocument();
+  });
+
+  it("still lists commands when the catalogue fails to load", async () => {
+    renderPalette({
+      catalogue: async () => {
+        throw new Error("boom");
+      },
+      contextual: [
+        {
+          id: "ctx.a",
+          title: "Tidy view",
+          kind: "run",
+          run: () => ({ ok: true }),
+        },
+      ],
+    });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "tidy" } });
+    // Contextual command still works even though the registered catalogue failed.
+    await optionByTitle("Tidy view");
+  });
+
+  it("renders a disabled contextual action as non-interactive and never runs it", async () => {
+    const run = vi.fn(() => ({ ok: true as const }));
+    renderPalette({
+      contextual: [
+        {
+          id: "ctx.d",
+          title: "Blocked action",
+          kind: "run",
+          run,
+          disabled: true,
+        },
+      ],
+    });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "blocked" } });
+    const option = await optionByTitle("Blocked action");
+    // aria-disabled, a visible non-colour cue, and NO button/link affordance.
+    expect(option).toHaveAttribute("aria-disabled", "true");
+    expect(option).not.toHaveAttribute("aria-selected", "true");
+    expect(within(option).getByText("Unavailable")).toBeInTheDocument();
+    expect(within(option).queryByRole("button")).toBeNull();
+    expect(within(option).queryByRole("link")).toBeNull();
+    // Enter routes to the active option — which skip-disabled never lands here.
+    fireEvent.keyDown(input, { key: "Enter" });
+    // A direct pointer click on the row does nothing either.
+    fireEvent.click(option);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("skips a disabled option during keyboard navigation and lands on an enabled one", async () => {
+    const disabledRun = vi.fn(() => ({ ok: true as const }));
+    const enabledRun = vi.fn(() => ({ ok: true as const }));
+    const { onClose } = renderPalette({
+      contextual: [
+        {
+          id: "ctx.off",
+          title: "Zzz disabled first",
+          kind: "run",
+          run: disabledRun,
+          disabled: true,
+        },
+        {
+          id: "ctx.on",
+          title: "Zzz enabled next",
+          kind: "run",
+          run: enabledRun,
+        },
+      ],
+    });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "zzz" } });
+    await optionByTitle("Zzz enabled next");
+    // ArrowDown from the top must skip the disabled option and reach the enabled
+    // one; Enter then runs only the enabled action.
+    fireEvent.keyDown(input, { key: "Home" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(enabledRun).toHaveBeenCalledTimes(1));
+    expect(disabledRun).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("Retry does not rerun a contextual action that became disabled, and clears the banner", async () => {
+    const run = vi.fn(() => ({
+      ok: false as const,
+      reason: "failed" as const,
+      message: "Failed once.",
+    }));
+    function Case({ disabled }: { readonly disabled: boolean }) {
+      return (
+        <MemoryRouter initialEntries={["/projects"]}>
+          <CommandContextProvider>
+            <Ctx
+              actions={[
+                {
+                  id: "ctx.r",
+                  title: "Rerunnable action",
+                  kind: "run",
+                  run,
+                  disabled,
+                },
+              ]}
+            />
+            <CommandPalette
+              onClose={vi.fn()}
+              opener={null}
+              catalogue={async () => CATALOGUE}
+              debounceMs={0}
+              search={emptySearch}
+            />
+          </CommandContextProvider>
+        </MemoryRouter>
+      );
+    }
+    const { rerender } = render(<Case disabled={false} />);
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "rerunnable" } });
+    await optionByTitle("Rerunnable action");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(screen.getByText("Failed once.")).toBeInTheDocument(),
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+
+    // The surface state changes: the action is now disabled.
+    rerender(<Case disabled />);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    // Retry must NOT re-invoke the now-disabled action, and the stale banner clears.
+    expect(run).toHaveBeenCalledTimes(1);
+    await waitFor(() =>
+      expect(screen.queryByText("Failed once.")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("does not navigate or close for a stale target-bearing success after the query changed", async () => {
+    let resolveExec: (o: { ok: true; target: unknown }) => void = () => {};
+    const execute = vi.fn(
+      () =>
+        new Promise<{ ok: true; target: unknown }>((resolve) => {
+          resolveExec = resolve;
+        }),
+    );
+    const { onClose } = renderPalette({ execute });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "reindex" } });
+    await optionByTitle("Reindex the workspace");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() =>
+      expect(screen.getByText("Running…")).toBeInTheDocument(),
+    );
+    // Supersede the pending command by changing the query (resets execution).
+    fireEvent.change(input, { target: { value: "today" } });
+    // The slow command now settles with a target-bearing success — but it is stale.
+    resolveExec({ ok: true, target: { kind: "route", to: "/today" } });
+    await Promise.resolve();
+    await waitFor(() => expect(screen.queryByText("Running…")).toBeNull());
+    // The stale success must NOT close the palette (nor navigate).
+    expect(onClose).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("advertises a shortcut hint for a navigation command but not an executable one", async () => {
+    const catalogue: CommandCatalogue = {
+      commands: [
+        {
+          id: "nav.go",
+          moduleId: "m",
+          moduleLabel: "M",
+          title: "Navigate somewhere",
+          keywords: [],
+          kind: "navigate",
+          target: { kind: "route", to: "/x" },
+          shortcut: { key: "g", modifiers: ["shift"] },
+        },
+        {
+          id: "exec.run",
+          moduleId: "m",
+          moduleLabel: "M",
+          title: "Navigate a job",
+          keywords: [],
+          kind: "execute",
+          shortcut: { key: "r", modifiers: ["shift"] },
+        },
+      ],
+    };
+    renderPalette({ catalogue: async () => catalogue });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "navigate" } });
+    const navOption = await optionByTitle("Navigate somewhere");
+    const execOption = await optionByTitle("Navigate a job");
+    // The navigation command's global shortcut is dispatched → its hint shows.
+    expect(
+      navOption.querySelector(".dh-command__optionshortcut"),
+    ).not.toBeNull();
+    // The executable command's global shortcut is deferred (DS-10) → no hint,
+    // so nothing advertises a control that cannot currently run.
+    expect(execOption.querySelector(".dh-command__optionshortcut")).toBeNull();
+  });
+
+  it("exposes no active descendant when every option is disabled", async () => {
+    renderPalette({
+      contextual: [
+        {
+          id: "ctx.only",
+          title: "Solo disabled",
+          kind: "run",
+          run: () => ({ ok: true }),
+          disabled: true,
+        },
+      ],
+    });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "solo" } });
+    await optionByTitle("Solo disabled");
+    // The disabled-only list leaves nothing selectable.
+    expect(input).not.toHaveAttribute("aria-activedescendant");
+  });
+
+  it("navigates ArrowDown/Enter to open a record result in the Drawer target", async () => {
+    const { onClose } = renderPalette({ search: healthySearch });
+    const input = screen.getByRole("combobox", {
+      name: "Search commands and records",
+    });
+    fireEvent.change(input, { target: { value: "Finish" } });
+    const listbox = await screen.findByRole("listbox");
+    await waitFor(() =>
+      expect(within(listbox).getAllByRole("option").length).toBeGreaterThan(0),
+    );
+    fireEvent.keyDown(input, { key: "End" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onClose).toHaveBeenCalled();
+  });
+});
