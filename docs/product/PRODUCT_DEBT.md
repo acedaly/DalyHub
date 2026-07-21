@@ -111,6 +111,11 @@
 - **Desired future state.** A cross-app pass implements the remaining reserved vocabulary through the SAME one shared dispatcher (never per-surface listeners), promotes the shortcuts reference to a global overlay reusing the shared modal machinery, and adds dedicated commands for the four Today actions (e.g. a command that opens the waiting editor / activity tab / a date prompt) — extending, never forking, the DS-09 command system.
 - **Related roadmap item.** A future cross-cutting keyboard item (post-[TODAY-05](../roadmap/ROADMAP_V2.md#-today-05--keyboard-workflow)); the vocabulary stays reserved in the interim so nothing else claims those keys.
 
+### ☐ DEBT-19 — Projects: search still opens the fixture project drawer; collection is a single bounded page — P3
+- **Current issue.** PROJ-01 replaced the Today "Continue working" seam with the real project read model (navigating to `/projects/:id`), but the DS-08 Today **search** provider ([`app/modules/today/search.ts`](../../app/modules/today/search.ts)) still indexes fixture projects and opens a fixture `project:<id>` Drawer (the same fixture-search limitation as [DEBT-17](#-debt-17--today-search-provider-is-fixture-backed-not-over-real-tasks--p3)), so a project *found via search* opens a placeholder rather than the real record route now that real projects exist. Separately, the Projects **collection** ([`projects.listProjects`](../../app/platform/storage/d1/d1-project-repository.ts)) is a single **bounded page** (deterministic `(createdAt, id)` order, clamped limit) with no cursor pagination, and Today's "Continue working" approximates recency by sorting a bounded scan by `updatedAt` in the loader rather than an indexed recency query.
+- **Desired future state.** Search resolves real projects and targets the canonical `/projects/:id` route (folded into the DEBT-17 real-search work); the collection gains cursor pagination when a workspace's project count warrants it; "Continue working" reads a genuine recently-active ordering. None blocks PROJ-01's calm single-owner surface.
+- **Related roadmap item.** [PROJ-01](../roadmap/ROADMAP_V2.md#-proj-01--overview); [DS-08](../roadmap/ROADMAP_V2.md#-ds-08--shared-search); [PROJ-02](../roadmap/ROADMAP_V2.md) (richer project filtering reuses the DS-07 clause-builder the state segment defers).
+
 ---
 
 ## Entry template
