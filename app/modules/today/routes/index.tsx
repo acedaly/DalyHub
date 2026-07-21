@@ -55,13 +55,6 @@ export function meta() {
   ];
 }
 
-/**
- * How many tasks the planning surface loads (open work + today's completions).
- * Bounded — a calm daily planning surface, never an unbounded backlog dump. The
- * task list orders open work first, so a busy day's completions stay within reach.
- */
-const PLAN_LIMIT = 100;
-
 /** Bounded fetch backing the Today Waiting summary (count + a small preview). */
 const WAITING_SUMMARY_LIMIT = 50;
 
@@ -92,15 +85,12 @@ export async function loader({ context }: Route.LoaderArgs) {
   let waiting: WaitingSummary;
   try {
     const scope = await resolveAuthenticatedWorkspaceScope(env, session);
-    // Include completed tasks so "Completed today" and the summary are real; open
-    // work sorts first. Waiting tasks are EXCLUDED — blocked work surfaces in the
-    // Waiting view, not the planning sections (ADR-029), so a waiting task never
-    // silently becomes today's work (TODAY-04 rule).
-    const page = await scope.tasks.listTasks({
-      limit: PLAN_LIMIT,
-      includeCompleted: true,
-      excludeWaiting: true,
-    });
+    // The dedicated planning query bounds each band (scheduled work, backlog, recent
+    // completions) INDEPENDENTLY, so a large unscheduled backlog can never crowd out
+    // the owner's planned/overdue/today tasks or today's completions. Waiting tasks
+    // are excluded — blocked work surfaces in the Waiting view, not the planning
+    // sections (ADR-029), so a waiting task never silently becomes today's work.
+    const page = await scope.tasks.listPlanningTasks({ todayIso });
     const items: PlanningTaskItem[] = page.items.map((item) => ({
       id: item.id,
       title: item.title,

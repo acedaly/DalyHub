@@ -225,6 +225,59 @@ describe("planning independence (regressions)", () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* Repository — the planning query never loses commitments to the backlog       */
+/* -------------------------------------------------------------------------- */
+
+describe("listPlanningTasks", () => {
+  it("keeps planned + completed-today work when the unscheduled backlog is large", async () => {
+    const spine = spineRepo(WS);
+    const area = await spine.createArea({ title: "Ops" });
+    const tasks = taskRepo(WS);
+
+    // A large unscheduled backlog, all with an EARLY due date — exactly the shape
+    // that a single due-date-ordered, capped list would surface ahead of (and thus
+    // hide) the owner's real commitments.
+    for (let i = 0; i < 120; i++) {
+      const t = await spine.createTask({
+        title: `Backlog ${i}`,
+        parent: { kind: "area", id: area.id },
+      });
+      await tasks.updateTask(t.id, { dueDate: "2026-01-01" });
+    }
+
+    // A task scheduled for today, and one completed today — neither has an early
+    // due date, so both would fall outside a 100-item due-date-ordered page.
+    const planned = await spine.createTask({
+      title: "Planned for today",
+      parent: { kind: "area", id: area.id },
+    });
+    await tasks.planTask(planned.id, { scheduledDate: "2026-07-20" });
+    const done = await spine.createTask({
+      title: "Finished today",
+      parent: { kind: "area", id: area.id },
+    });
+    await tasks.completeTask(done.id);
+
+    const page = await tasks.listPlanningTasks({ todayIso: "2026-07-20" });
+    const byId = new Map(page.items.map((item) => [item.id, item]));
+
+    // The planned task and the completed task both survive the large backlog.
+    expect(byId.get(planned.id)?.scheduledDate).toBe("2026-07-20");
+    expect(byId.get(done.id)?.completedAt).not.toBeNull();
+  });
+
+  it("excludes waiting tasks from the planning bands", async () => {
+    const id = await seedTask(WS, "Blocked");
+    const tasks = taskRepo(WS);
+    await tasks.planTask(id, { scheduledDate: "2026-07-21" });
+    await tasks.setWaiting(id, { target: { kind: "text", note: "vendor" } });
+
+    const page = await tasks.listPlanningTasks({ todayIso: "2026-07-20" });
+    expect(page.items.some((item) => item.id === id)).toBe(false);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /* Repository — bulk planning (atomic)                                         */
 /* -------------------------------------------------------------------------- */
 

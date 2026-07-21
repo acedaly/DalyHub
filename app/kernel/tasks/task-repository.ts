@@ -21,6 +21,7 @@ import type {
   ClearWaitingResult,
   CompleteTaskResult,
   GetTaskOptions,
+  ListPlanningTasksInput,
   ListTasksInput,
   ListWaitingTasksInput,
   PlanTaskInput,
@@ -61,6 +62,17 @@ export interface TaskRepository {
    * a safe default and maximum page size. Never an unbounded "load everything".
    */
   listTasks(input?: ListTasksInput): Promise<TaskListPage>;
+
+  /**
+   * List the tasks the planning surface needs (TODAY-04), bounded per band so the
+   * owner's commitments are never lost to backlog truncation: ALL scheduled (planned)
+   * open tasks up to a generous bound (ordered scheduled-date ascending, so overdue
+   * and today are preserved first), a bounded page of the unscheduled backlog, and a
+   * bounded page of the most-recent completions (for "completed today"). Waiting
+   * tasks are excluded. The result is a flat list the caller buckets by scheduled
+   * date; unlike `listTasks`, a large early-due backlog can never hide planned work.
+   */
+  listPlanningTasks(input: ListPlanningTasksInput): Promise<TaskListPage>;
 
   /**
    * Activate or change a task's waiting state (TODAY-03) ATOMICALLY: one batch

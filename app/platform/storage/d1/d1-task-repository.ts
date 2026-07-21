@@ -70,6 +70,7 @@ import {
   type ClearWaitingResult,
   type CompleteTaskResult,
   type GetTaskOptions,
+  type ListPlanningTasksInput,
   type ListTasksInput,
   type ListWaitingTasksInput,
   type PlanTaskInput,
@@ -137,6 +138,27 @@ const WAITING_TARGET_JOIN = `
 
 /** The joined read row shape when the waiting-on target columns are selected. */
 type TaskWaitingJoinedRow = TaskJoinedRow & WaitingTargetColumns;
+
+/**
+ * A joined task-list row: the detail/parent columns, with the waiting-target columns
+ * OPTIONAL — `listTasks` selects them, the planning bands (which exclude waiting) do
+ * not. `rowToTaskWaiting` returns null when `waiting_since` is null, so their absence
+ * is safe.
+ */
+type TaskListRow = TaskJoinedRow & {
+  readonly parent_title: string | null;
+} & Partial<WaitingTargetColumns>;
+
+/**
+ * Planning query band bounds (TODAY-04). Each band is fetched independently so the
+ * planning view never loses commitments to backlog truncation. Scheduled work gets a
+ * generous bound and is ordered scheduled-date ascending (overdue/today first, only
+ * far-future upcoming ever truncated); the backlog and recent completions are
+ * bounded modestly (calm daily surface, not a report).
+ */
+const PLANNING_SCHEDULED_LIMIT = 200;
+const PLANNING_BACKLOG_LIMIT = 100;
+const PLANNING_COMPLETED_LIMIT = 100;
 
 /**
  * TEST-ONLY deterministic failure injection points for `completeTask`'s atomic
@@ -253,34 +275,110 @@ export class D1TaskRepository implements TaskRepository {
       .bind(this.#workspaceId, limit);
 
     const result = await this.#run(statement);
-    const rows = (result.results ?? []) as (TaskWaitingJoinedRow & {
-      readonly parent_title: string | null;
-    })[];
-    const items: TaskListItem[] = rows.map((row) => {
-      const details = rowToTaskDetails(row);
-      return {
-        id: row.id,
-        workspaceId: parseWorkspaceId(row.workspace_id),
-        title: row.title,
-        createdAt: fromStorageTimestamp(row.created_at),
-        updatedAt: fromStorageTimestamp(row.updated_at),
-        completedAt:
-          row.completed_at === null
-            ? null
-            : fromStorageTimestamp(row.completed_at),
-        status: details.status,
-        priority: details.priority,
-        dueDate: details.dueDate,
-        scheduledDate: details.scheduledDate,
-        parent: this.#parentRelation(
-          row.parent_link_type,
-          row.parent_id,
-          row.parent_title,
-        ),
-        waiting: rowToTaskWaiting(row),
-      };
-    });
+    const rows = (result.results ?? []) as TaskListRow[];
+    const items = rows.map((row) => this.#toTaskListItem(row));
     return { items };
+  }
+
+  /**
+   * Planning query (TODAY-04): fetch the tasks the planning surface buckets, each
+   * band bounded INDEPENDENTLY so a large unscheduled backlog can never crowd out
+   * the owner's planned/overdue/today tasks or today's completions (unlike the
+   * single, due-date-ordered `listTasks` page). Three bounded reads — scheduled
+   * (planned) open tasks ordered scheduled-date ascending so overdue/today are kept
+   * first, the unscheduled backlog, and the most-recent completions — are unioned
+   * into one flat list for the caller to bucket. Waiting tasks are excluded. The
+   * three bands are disjoint (open-scheduled / open-unscheduled / completed), so no
+   * task appears twice.
+   */
+  async listPlanningTasks(
+    input: ListPlanningTasksInput,
+  ): Promise<TaskListPage> {
+    const scheduledLimit = input.scheduledLimit ?? PLANNING_SCHEDULED_LIMIT;
+    const backlogLimit = input.backlogLimit ?? PLANNING_BACKLOG_LIMIT;
+    const completedLimit = input.completedLimit ?? PLANNING_COMPLETED_LIMIT;
+
+    const scheduled = await this.#queryPlanningBand(
+      "sr.completed_at IS NULL AND td.waiting_since IS NULL AND td.scheduled_date IS NOT NULL",
+      "td.scheduled_date ASC, e.id ASC",
+      scheduledLimit,
+    );
+    const backlog = await this.#queryPlanningBand(
+      "sr.completed_at IS NULL AND td.waiting_since IS NULL AND td.scheduled_date IS NULL",
+      "(td.due_date IS NULL) ASC, td.due_date ASC, e.created_at ASC, e.id ASC",
+      backlogLimit,
+    );
+    const completed = await this.#queryPlanningBand(
+      "sr.completed_at IS NOT NULL AND td.waiting_since IS NULL",
+      "sr.completed_at DESC, e.id ASC",
+      completedLimit,
+    );
+
+    return { items: [...scheduled, ...backlog, ...completed] };
+  }
+
+  /**
+   * Run one bounded planning band. Waiting is excluded by the WHERE clause, so no
+   * waiting-target join is needed. The WHERE/ORDER fragments are trusted, constant
+   * kernel SQL (never caller data); the workspace id and limit are bound.
+   */
+  async #queryPlanningBand(
+    where: string,
+    order: string,
+    limit: number,
+  ): Promise<TaskListItem[]> {
+    const statement = this.#db
+      .prepare(
+        `SELECT ${TASK_DETAIL_COLUMNS},
+                pl.target_entity_id AS parent_id,
+                pl.type AS parent_link_type,
+                pe.title AS parent_title
+         FROM entities e
+         JOIN spine_records sr
+           ON sr.workspace_id = e.workspace_id AND sr.entity_id = e.id
+         LEFT JOIN task_details td
+           ON td.workspace_id = e.workspace_id AND td.entity_id = e.id
+         LEFT JOIN entity_links pl
+           ON pl.workspace_id = e.workspace_id AND pl.source_entity_id = e.id
+              AND pl.deleted_at IS NULL AND pl.type IN (${TASK_PARENT_LINK_LIST})
+         LEFT JOIN entities pe
+           ON pe.workspace_id = e.workspace_id AND pe.id = pl.target_entity_id
+              AND pe.deleted_at IS NULL
+         WHERE e.workspace_id = ? AND e.type = '${TASK}' AND e.deleted_at IS NULL
+           AND ${where}
+         ORDER BY ${order}
+         LIMIT ?`,
+      )
+      .bind(this.#workspaceId, limit);
+    const result = await this.#run(statement);
+    const rows = (result.results ?? []) as TaskListRow[];
+    return rows.map((row) => this.#toTaskListItem(row));
+  }
+
+  /** Map a joined task-list row into a `TaskListItem` (shared by the list queries). */
+  #toTaskListItem(row: TaskListRow): TaskListItem {
+    const details = rowToTaskDetails(row);
+    return {
+      id: row.id,
+      workspaceId: parseWorkspaceId(row.workspace_id),
+      title: row.title,
+      createdAt: fromStorageTimestamp(row.created_at),
+      updatedAt: fromStorageTimestamp(row.updated_at),
+      completedAt:
+        row.completed_at === null
+          ? null
+          : fromStorageTimestamp(row.completed_at),
+      status: details.status,
+      priority: details.priority,
+      dueDate: details.dueDate,
+      scheduledDate: details.scheduledDate,
+      parent: this.#parentRelation(
+        row.parent_link_type,
+        row.parent_id,
+        row.parent_title,
+      ),
+      waiting: rowToTaskWaiting(row),
+    };
   }
 
   /* ---------------------------------------------------------------------- */
