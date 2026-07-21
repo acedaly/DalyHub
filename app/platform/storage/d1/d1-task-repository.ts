@@ -91,6 +91,8 @@ import {
   type UpdateTaskResult,
   type WaitingTaskListItem,
   type WaitingTaskPage,
+  encodeProjectTaskCursor,
+  decodeProjectTaskCursorForScope,
 } from "~/kernel/tasks";
 import type { WorkspaceContext } from "~/kernel/workspaces";
 import { parseWorkspaceId } from "~/kernel/workspaces";
@@ -307,6 +309,14 @@ export class D1TaskRepository implements TaskRepository {
     const parentId = validateTaskId(projectId);
     const limit = validateTaskLimit(input.limit);
     const state = input.state ?? "open";
+    const scope = {
+      workspaceId: this.#workspaceId,
+      projectId: parentId,
+      state,
+    } as const;
+    const cursor = input.cursor
+      ? decodeProjectTaskCursorForScope(input.cursor, scope)
+      : null;
     const completedClause =
       state === "open"
         ? " AND sr.completed_at IS NULL"
@@ -334,7 +344,7 @@ export class D1TaskRepository implements TaskRepository {
          LEFT JOIN task_details td
            ON td.workspace_id = e.workspace_id AND td.entity_id = e.id
          ${WAITING_TARGET_JOIN}
-         WHERE e.workspace_id = ? AND e.type = '${TASK}' AND e.deleted_at IS NULL${completedClause}
+         WHERE e.workspace_id = ? AND e.type = '${TASK}' AND e.deleted_at IS NULL${completedClause}${cursor ? " AND ((sr.completed_at IS NOT NULL) > ? OR ((sr.completed_at IS NOT NULL) = ? AND ((td.due_date IS NULL) > ? OR ((td.due_date IS NULL) = ? AND (COALESCE(td.due_date, '') > ? OR (COALESCE(td.due_date, '') = ? AND (e.created_at > ? OR (e.created_at = ? AND e.id > ?)))))))" : ""}
          ORDER BY (sr.completed_at IS NOT NULL) ASC,
                   (td.due_date IS NULL) ASC,
                   td.due_date ASC,
@@ -342,11 +352,43 @@ export class D1TaskRepository implements TaskRepository {
                   e.id ASC
          LIMIT ?`,
       )
-      .bind(parentId, this.#workspaceId, limit);
+      .bind(
+        parentId,
+        this.#workspaceId,
+        ...(cursor
+          ? [
+              cursor.completed,
+              cursor.completed,
+              cursor.due === null ? 1 : 0,
+              cursor.due === null ? 1 : 0,
+              cursor.due ?? "",
+              cursor.due ?? "",
+              cursor.createdAt,
+              cursor.createdAt,
+              cursor.id,
+            ]
+          : []),
+        limit + 1,
+      );
 
     const result = await this.#run(statement);
     const rows = (result.results ?? []) as TaskListRow[];
-    return { items: rows.map((row) => this.#toTaskListItem(row)) };
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const last = pageRows.at(-1);
+    return {
+      items: pageRows.map((row) => this.#toTaskListItem(row)),
+      hasMore,
+      nextCursor:
+        hasMore && last
+          ? encodeProjectTaskCursor(scope, {
+              completed: last.completed_at === null ? 0 : 1,
+              due: last.due_date,
+              createdAt: last.created_at,
+              id: last.id,
+            })
+          : null,
+    };
   }
 
   /**

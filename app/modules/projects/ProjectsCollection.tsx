@@ -10,7 +10,7 @@
  */
 
 import { useMemo } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
 import { Card, CardCollection } from "~/shared/card";
 import type { CardMetaItem, CardProps } from "~/shared/card";
@@ -50,6 +50,8 @@ export interface ProjectsCollectionViewProps {
   readonly parentOptions: readonly SelectOption[];
   readonly state: ProjectState;
   readonly failed: boolean;
+  readonly nextCursor?: string | null;
+  readonly hasMore?: boolean;
 }
 
 export function ProjectsCollectionView({
@@ -57,6 +59,8 @@ export function ProjectsCollectionView({
   parentOptions,
   state,
   failed,
+  nextCursor = null,
+  hasMore = false,
 }: ProjectsCollectionViewProps) {
   const navigate = useNavigate();
 
@@ -79,6 +83,8 @@ export function ProjectsCollectionView({
         projects={projects}
         state={state}
         failed={failed}
+        nextCursor={nextCursor}
+        hasMore={hasMore}
         onOpenProject={(id) => navigate(`/projects/${encodeURIComponent(id)}`)}
       />
     </DrawerProvider>
@@ -152,12 +158,17 @@ function ProjectsCollection({
   state,
   failed,
   onOpenProject,
+  nextCursor,
+  hasMore,
 }: {
   readonly projects: readonly SerializedProjectListItem[];
   readonly state: ProjectState;
   readonly failed: boolean;
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
   readonly onOpenProject: (id: string) => void;
 }) {
+  const [searchParams] = useSearchParams();
   const cards = useMemo(
     () => projects.map((project) => toProjectCardData(project)),
     [projects],
@@ -166,9 +177,16 @@ function ProjectsCollection({
   const count = projects.length;
   const subtitle = failed
     ? "We couldn't load your projects."
-    : count === 1
-      ? "1 project"
-      : `${count} projects`;
+    : hasMore
+      ? "More projects are available."
+      : count === 1
+        ? "1 project"
+        : `${count} projects`;
+  const nextHref = (() => {
+    const next = new URLSearchParams(searchParams);
+    if (nextCursor) next.set("cursor", nextCursor);
+    return `?${next.toString()}`;
+  })();
 
   return (
     <CollectionLayout
@@ -242,6 +260,11 @@ function ProjectsCollection({
         density="comfortable"
         renderCard={(card) => <Card {...toCardProps(card, onOpenProject)} />}
       />
+      {hasMore && nextCursor ? (
+        <Link className="dh-btn dh-btn--secondary" to={nextHref}>
+          Load more projects
+        </Link>
+      ) : null}
     </CollectionLayout>
   );
 }

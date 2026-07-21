@@ -9,7 +9,7 @@
  * project stays behind the Drawer and the task is edited the one canonical way.
  */
 
-import { useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import { Card, CardCollection } from "~/shared/card";
 import type { CardMetaItem, CardProps } from "~/shared/card";
@@ -39,6 +39,8 @@ interface ProjectTasksTabProps {
   readonly tasks: readonly SerializedProjectTask[];
   readonly taskState: "open" | "completed" | "all";
   readonly todayIso: string;
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
 }
 
 function toTaskCardProps(
@@ -94,6 +96,8 @@ export function ProjectTasksTab({
   tasks,
   taskState,
   todayIso,
+  nextCursor,
+  hasMore,
 }: ProjectTasksTabProps) {
   const { openDrawer } = useDrawer();
   const [searchParams] = useSearchParams();
@@ -103,6 +107,8 @@ export function ProjectTasksTab({
     onOpen: () => openDrawer(key),
   });
 
+  const nextParams = new URLSearchParams(searchParams);
+  if (nextCursor) nextParams.set("taskCursor", nextCursor);
   return (
     <div className="dh-project-tasks">
       <div className="dh-project-tasks__toolbar">
@@ -153,6 +159,14 @@ export function ProjectTasksTab({
           )}
         />
       )}
+      {hasMore && nextCursor ? (
+        <Link
+          className="dh-btn dh-btn--secondary"
+          to={`?${nextParams.toString()}`}
+        >
+          Load more tasks
+        </Link>
+      ) : null}
     </div>
   );
 }

@@ -44,11 +44,13 @@ function parseState(value: string | null): ProjectState {
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const session = requireAuthenticatedSession(context);
-  const state = parseState(new URL(request.url).searchParams.get("state"));
+  const url = new URL(request.url);
+  const state = parseState(url.searchParams.get("state"));
+  const cursor = url.searchParams.get("cursor") ?? undefined;
 
   try {
     const scope = await resolveAuthenticatedWorkspaceScope(env, session);
-    const page = await scope.projects.listProjects({ state });
+    const page = await scope.projects.listProjects({ state, cursor });
     // The Area/Goal parent options for the create form (bounded, workspace-scoped).
     const [areas, goals] = await Promise.all([
       scope.entities.list({ type: "area", limit: PARENT_OPTIONS_LIMIT }),
@@ -68,6 +70,8 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     ];
     return {
       projects: page.items.map(serializeProjectListItem),
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
       parentOptions,
       state,
       failed: false,
@@ -77,6 +81,8 @@ export async function loader({ request, context }: Route.LoaderArgs) {
       projects: [] as SerializedProjectListItem[],
       parentOptions: [] as SelectOption[],
       state,
+      nextCursor: null,
+      hasMore: false,
       failed: true,
     };
   }
@@ -89,6 +95,8 @@ export default function ProjectsRoute({ loaderData }: Route.ComponentProps) {
       parentOptions={loaderData.parentOptions}
       state={loaderData.state}
       failed={loaderData.failed}
+      nextCursor={loaderData.nextCursor}
+      hasMore={loaderData.hasMore}
     />
   );
 }

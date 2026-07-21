@@ -42,6 +42,8 @@ export function SegmentedFilter({
 
   const hrefFor = (optionValue: string): string => {
     const next = new URLSearchParams(searchParams);
+    // A state change defines a different result set, so an old cursor is invalid.
+    if (param === "state" || param === "tasks") next.delete("cursor");
     if (optionValue === defaultValue) {
       next.delete(param);
     } else {

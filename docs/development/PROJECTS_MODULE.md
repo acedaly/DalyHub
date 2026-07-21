@@ -139,3 +139,8 @@ refinements are tracked in [`PRODUCT_DEBT.md`](../product/PRODUCT_DEBT.md).
 - [`SPINE_MODEL.md`](SPINE_MODEL.md) — the Area → Goal → Project → Task spine.
 - [`TODAY_DASHBOARD.md`](TODAY_DASHBOARD.md) — the task record surface and the Today integration.
 - [`ROADMAP_V2.md` PROJ-01](../roadmap/ROADMAP_V2.md#-proj-01--overview) · [`docs/README.md`](../README.md).
+
+
+## Bounded collection navigation
+
+Projects and project Tasks use `limit + 1` reads with opaque, versioned cursors. Cursors bind workspace, state and exact ordering (and project id for task pages); the routes retain cursors in URL state and reset them when the corresponding state segment changes. The UI never presents a partial loaded count as a total, and offers a normal keyboard-accessible **Load more** link while another bounded page exists.

@@ -19,3 +19,11 @@ export type {
 export type { ProjectRepository } from "./project-repository";
 
 export { ProjectStorageError } from "./project-errors";
+
+export {
+  PROJECT_CURSOR_VERSION,
+  encodeProjectCursor,
+  decodeProjectCursorForScope,
+  type ProjectCursorScope,
+  type ProjectCursorPosition,
+} from "./project-cursor";
