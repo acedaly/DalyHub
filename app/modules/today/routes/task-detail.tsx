@@ -23,7 +23,11 @@
 
 import { env } from "cloudflare:workers";
 
-import { TaskNotFoundError, TaskValidationError } from "~/kernel/tasks";
+import {
+  TaskNotFoundError,
+  TaskValidationError,
+  type SetWaitingInput,
+} from "~/kernel/tasks";
 import {
   createLinkWithPolicy,
   listActiveLinks,
@@ -80,6 +84,17 @@ export type TaskActionData =
       readonly kind: "unlink";
       readonly ok: boolean;
       readonly message?: string;
+    }
+  | {
+      readonly kind: "waiting";
+      readonly status: "success";
+      readonly task: SerializedTaskView;
+    }
+  | {
+      readonly kind: "waiting";
+      readonly status: "error";
+      readonly formError?: string;
+      readonly fieldErrors?: Readonly<Record<string, string>>;
     };
 
 function json(data: unknown, status = 200): Response {
@@ -165,6 +180,10 @@ export async function action({ request, params, context }: Route.ActionArgs) {
       return json(await handleLink(scope, taskId, form));
     case "unlink":
       return json(await handleUnlink(scope, taskId, form));
+    case "set_waiting":
+      return json(await handleSetWaiting(scope, taskId, form));
+    case "clear_waiting":
+      return json(await handleClearWaiting(scope, taskId));
     default:
       return json(
         { kind: "update", status: "error", formError: "Unknown action." },
@@ -234,10 +253,19 @@ async function handleCompletion(
 ): Promise<TaskActionData> {
   try {
     if (intent === "complete") {
-      await scope.spine.complete(taskId);
-    } else {
-      await scope.spine.reopen(taskId);
+      // Completing a task AND clearing any active waiting state is ONE atomic
+      // task-domain operation (ADR-029): a completed task can never be left still
+      // waiting. The route no longer coordinates this invariant through two calls.
+      const result = await scope.tasks.completeTask(taskId);
+      return {
+        kind: "completion",
+        ok: true,
+        task: serializeTaskView(result.task),
+      };
     }
+    // Reopening goes through the spine (the completion authority) and does NOT
+    // restore a prior waiting state (the documented default).
+    await scope.spine.reopen(taskId);
     const task = await scope.tasks.getTask(taskId);
     if (!task) {
       return {
@@ -288,4 +316,81 @@ async function handleUnlink(
   return result.ok
     ? { kind: "unlink", ok: true }
     : { kind: "unlink", ok: false, message: result.message };
+}
+
+async function handleSetWaiting(
+  scope: WorkspaceScope,
+  taskId: string,
+  form: FormData,
+): Promise<TaskActionData> {
+  const mode = String(form.get("waitingMode") ?? "");
+  const input: SetWaitingInput =
+    mode === "entity"
+      ? {
+          target: {
+            kind: "entity",
+            targetId: String(form.get("waitingTargetId") ?? ""),
+          },
+        }
+      : {
+          target: { kind: "text", note: String(form.get("waitingNote") ?? "") },
+        };
+  try {
+    const result = await scope.tasks.setWaiting(taskId, input);
+    return {
+      kind: "waiting",
+      status: "success",
+      task: serializeTaskView(result.task),
+    };
+  } catch (cause) {
+    if (cause instanceof TaskValidationError) {
+      // Surface the failure against the control the owner was editing.
+      const field =
+        cause.field === "waitingNote" ? "waitingNote" : "waitingTargetId";
+      return {
+        kind: "waiting",
+        status: "error",
+        fieldErrors: { [field]: cause.message },
+      };
+    }
+    if (cause instanceof TaskNotFoundError) {
+      return {
+        kind: "waiting",
+        status: "error",
+        formError: "This task is no longer available.",
+      };
+    }
+    return {
+      kind: "waiting",
+      status: "error",
+      formError: "That couldn't be saved. Your work is safe — try again.",
+    };
+  }
+}
+
+async function handleClearWaiting(
+  scope: WorkspaceScope,
+  taskId: string,
+): Promise<TaskActionData> {
+  try {
+    const result = await scope.tasks.clearWaiting(taskId);
+    return {
+      kind: "waiting",
+      status: "success",
+      task: serializeTaskView(result.task),
+    };
+  } catch (cause) {
+    if (cause instanceof TaskNotFoundError) {
+      return {
+        kind: "waiting",
+        status: "error",
+        formError: "This task is no longer available.",
+      };
+    }
+    return {
+      kind: "waiting",
+      status: "error",
+      formError: "That couldn't be saved. Please try again.",
+    };
+  }
 }

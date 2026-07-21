@@ -16,12 +16,18 @@
  */
 
 import type {
+  ClearWaitingResult,
+  CompleteTaskResult,
   GetTaskOptions,
   ListTasksInput,
+  ListWaitingTasksInput,
+  SetWaitingInput,
+  SetWaitingResult,
   TaskListPage,
   TaskView,
   UpdateTaskInput,
   UpdateTaskResult,
+  WaitingTaskPage,
 } from "./task";
 
 export interface TaskRepository {
@@ -51,4 +57,51 @@ export interface TaskRepository {
    * a safe default and maximum page size. Never an unbounded "load everything".
    */
   listTasks(input?: ListTasksInput): Promise<TaskListPage>;
+
+  /**
+   * Activate or change a task's waiting state (TODAY-03) ATOMICALLY: one batch
+   * writes the `waiting_since`/`waiting_note` state, replaces the active
+   * `task.waiting_on` link (for an entity subject), and appends exactly one
+   * `task.waiting_started` (new) or `task.waiting_changed` (target replaced) event.
+   * EXACTLY ONE subject must be supplied (entity id XOR free-text note). Changing
+   * only the subject preserves the original `since`. A no-op (the identical subject
+   * is already set) appends no Activity and reports `changed: false`. Throws
+   * `TaskValidationError` for invalid/absent/duplicate subject input, and
+   * `TaskNotFoundError` for a missing/deleted task or a missing/cross-workspace/
+   * non-allowed-type/self entity target.
+   */
+  setWaiting(id: string, input: SetWaitingInput): Promise<SetWaitingResult>;
+
+  /**
+   * Clear a task's active waiting state ATOMICALLY: one batch clears
+   * `waiting_since`/`waiting_note`, unlinks any active `task.waiting_on` link, and
+   * appends exactly one `task.waiting_cleared` event. Clearing a task that is not
+   * waiting is an idempotent no-op (no Activity, `changed: false`). Throws
+   * `TaskNotFoundError` for a missing/deleted task.
+   */
+  clearWaiting(id: string): Promise<ClearWaitingResult>;
+
+  /**
+   * List the workspace's currently-waiting, active (non-completed) tasks as a
+   * bounded, deterministic page for the Waiting collection. Ordered overdue-first,
+   * then longest-waiting, then due date, then id. Never an unbounded query.
+   */
+  listWaitingTasks(input?: ListWaitingTasksInput): Promise<WaitingTaskPage>;
+
+  /**
+   * Complete a task AND clear any active waiting state as ONE atomic domain
+   * operation (ADR-029). A single `D1Database.batch()` sets the spine completion,
+   * bumps `updated_at`, clears `waiting_since`/`waiting_note`, soft-deletes the
+   * active `task.waiting_on` link, appends the `task.completed` event, and — ONLY
+   * when the task was actively waiting — appends exactly one `task.waiting_cleared`
+   * event. Either all of that commits, or nothing does: a completed task can never
+   * be left still-waiting. The FND-07 spine stays the completion authority (the
+   * completion SQL is the shared spine builder); this method owns the cross-domain
+   * invariant so no route coordinates it through two calls.
+   *
+   * Completing an already-completed task is an idempotent no-op (no Activity,
+   * `changed: false`). Throws `TaskNotFoundError` for a missing/deleted/non-task/
+   * cross-workspace id. Reopening is unchanged and never restores waiting.
+   */
+  completeTask(id: string): Promise<CompleteTaskResult>;
 }
