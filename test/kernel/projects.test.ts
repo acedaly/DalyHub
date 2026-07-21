@@ -36,7 +36,6 @@ function spine(ws: string, prefix = "e") {
 function tasks(ws: string) {
   return makeTaskRepository(makeContext(ws), {
     clock: new FakeClock().now,
-    idGenerator: ids("t"),
     activityIdGenerator: ids("ta"),
   });
 }
@@ -77,7 +76,11 @@ describe("ProjectRepository.listProjects", () => {
 
     const page = await makeProjectRepository(makeContext(WS)).listProjects();
     const item = page.items.find((p) => p.id === project.id)!;
-    expect(item.goal).toEqual({ kind: "goal", id: goal.id, title: "Run a half" });
+    expect(item.goal).toEqual({
+      kind: "goal",
+      id: goal.id,
+      title: "Run a half",
+    });
     // The Area is resolved through the Goal — not copied, not missing.
     expect(item.area).toEqual({ kind: "area", id: area.id, title: "Health" });
   });
@@ -128,7 +131,9 @@ describe("ProjectRepository.listProjects", () => {
 
     const repo = makeProjectRepository(makeContext(WS));
     const all = await repo.listProjects({ state: "all" });
-    expect(all.items.map((p) => p.id).sort()).toEqual([open.id, done.id].sort());
+    expect(all.items.map((p) => p.id).sort()).toEqual(
+      [open.id, done.id].sort(),
+    );
     const openOnly = await repo.listProjects({ state: "open" });
     expect(openOnly.items.map((p) => p.id)).toEqual([open.id]);
     const completedOnly = await repo.listProjects({ state: "completed" });
@@ -186,7 +191,11 @@ describe("ProjectRepository.getProjectOverview", () => {
       makeContext(WS),
     ).getProjectOverview(project.id);
     expect(overview?.title).toBe("DalyHub V2");
-    expect(overview?.area).toEqual({ kind: "area", id: area.id, title: "Career" });
+    expect(overview?.area).toEqual({
+      kind: "area",
+      id: area.id,
+      title: "Career",
+    });
     expect(overview?.goal).toBeNull();
   });
 
@@ -202,7 +211,11 @@ describe("ProjectRepository.getProjectOverview", () => {
       makeContext(WS),
     ).getProjectOverview(project.id);
     expect(overview?.goal?.id).toBe(goal.id);
-    expect(overview?.area).toEqual({ kind: "area", id: area.id, title: "Health" });
+    expect(overview?.area).toEqual({
+      kind: "area",
+      id: area.id,
+      title: "Health",
+    });
   });
 
   it("returns null for missing, wrong-kind, soft-deleted and cross-workspace ids", async () => {

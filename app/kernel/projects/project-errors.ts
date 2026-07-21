@@ -8,7 +8,10 @@
 
 /** A storage-layer failure while reading the project projection. */
 export class ProjectStorageError extends Error {
-  constructor(message = "A project storage error occurred.", options?: ErrorOptions) {
+  constructor(
+    message = "A project storage error occurred.",
+    options?: ErrorOptions,
+  ) {
     super(message, options);
     this.name = "ProjectStorageError";
   }

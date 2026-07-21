@@ -40,7 +40,6 @@ import {
   resolveAuthenticatedWorkspaceScope,
   type WorkspaceScope,
 } from "~/platform/workspaces";
-import type { EntityLinkSelection } from "~/shared/forms/model";
 
 import {
   serializeTaskView,

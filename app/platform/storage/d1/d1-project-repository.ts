@@ -190,7 +190,9 @@ export class D1ProjectRepository implements ProjectRepository {
       createdAt: fromStorageTimestamp(row.created_at),
       updatedAt: fromStorageTimestamp(row.updated_at),
       completedAt:
-        row.completed_at === null ? null : fromStorageTimestamp(row.completed_at),
+        row.completed_at === null
+          ? null
+          : fromStorageTimestamp(row.completed_at),
       area: relations.area,
       goal: relations.goal,
     };
@@ -205,7 +207,9 @@ export class D1ProjectRepository implements ProjectRepository {
       createdAt: fromStorageTimestamp(row.created_at),
       updatedAt: fromStorageTimestamp(row.updated_at),
       completedAt:
-        row.completed_at === null ? null : fromStorageTimestamp(row.completed_at),
+        row.completed_at === null
+          ? null
+          : fromStorageTimestamp(row.completed_at),
       area: relations.area,
       goal: relations.goal,
       taskTotal: Number(row.task_total ?? 0),

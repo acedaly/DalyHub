@@ -138,10 +138,32 @@ describe("module discovery", () => {
         },
         { id: "areas.index", moduleId: "areas", file: "routes/index.tsx" },
         { id: "goals.index", moduleId: "goals", file: "routes/index.tsx" },
+        // PROJ-01 adds the collection + record page routes and the create/mutate/
+        // link-target resource routes.
         {
           id: "projects.index",
           moduleId: "projects",
           file: "routes/index.tsx",
+        },
+        {
+          id: "projects.new",
+          moduleId: "projects",
+          file: "routes/new.tsx",
+        },
+        {
+          id: "projects.detail",
+          moduleId: "projects",
+          file: "routes/detail.tsx",
+        },
+        {
+          id: "projects.mutate",
+          moduleId: "projects",
+          file: "routes/mutate.tsx",
+        },
+        {
+          id: "projects.link_targets",
+          moduleId: "projects",
+          file: "routes/link-targets.tsx",
         },
         { id: "tasks.index", moduleId: "tasks", file: "routes/index.tsx" },
         // PROJ-01 / ADR-033 re-homed the task record resource routes to the Tasks
