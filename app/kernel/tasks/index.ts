@@ -90,3 +90,10 @@ export {
   validatePlanDate,
   validateTaskIdList,
 } from "./task-validation";
+
+export {
+  PROJECT_TASK_CURSOR_VERSION,
+  encodeProjectTaskCursor,
+  decodeProjectTaskCursorForScope,
+  type ProjectTaskCursorPosition,
+} from "./project-task-cursor";

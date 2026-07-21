@@ -66,9 +66,9 @@ function parseTaskState(value: string | null): TaskState {
 export async function loader({ request, params, context }: Route.LoaderArgs) {
   const session = requireAuthenticatedSession(context);
   const projectId = params.projectId;
-  const taskState = parseTaskState(
-    new URL(request.url).searchParams.get("tasks"),
-  );
+  const url = new URL(request.url);
+  const taskState = parseTaskState(url.searchParams.get("tasks"));
+  const cursor = url.searchParams.get("taskCursor") ?? undefined;
   const todayIso = ownerCalendarIso(new Date());
 
   const scope = await resolveAuthenticatedWorkspaceScope(env, session);
@@ -88,7 +88,7 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
       : projectProgressFromRollup({ total: 0, completed: 0, ratio: null });
 
   const [taskPage, links] = await Promise.all([
-    scope.tasks.listProjectTasks(projectId, { state: taskState }),
+    scope.tasks.listProjectTasks(projectId, { state: taskState, cursor }),
     listActiveLinks(
       { entities: scope.entities, entityLinks: scope.entityLinks },
       {
@@ -104,6 +104,8 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     progress,
     tasks: taskPage.items.map(serializeProjectTask),
     taskState,
+    nextTaskCursor: taskPage.nextCursor ?? null,
+    hasMoreTasks: taskPage.hasMore ?? false,
     links,
     todayIso,
   };
@@ -112,7 +114,16 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
 export default function ProjectDetailRoute({
   loaderData,
 }: Route.ComponentProps) {
-  const { overview, progress, tasks, taskState, links, todayIso } = loaderData;
+  const {
+    overview,
+    progress,
+    tasks,
+    taskState,
+    nextTaskCursor,
+    hasMoreTasks,
+    links,
+    todayIso,
+  } = loaderData;
 
   const renderDrawer = useMemo(
     () => createProjectDrawerRenderer(overview),
@@ -126,6 +137,8 @@ export default function ProjectDetailRoute({
         progress={progress}
         tasks={tasks}
         taskState={taskState}
+        nextCursor={nextTaskCursor}
+        hasMore={hasMoreTasks}
         links={links}
         todayIso={todayIso}
       />
@@ -213,6 +226,8 @@ function ProjectDetail({
   progress,
   tasks,
   taskState,
+  nextCursor,
+  hasMore,
   links,
   todayIso,
 }: {
@@ -220,6 +235,8 @@ function ProjectDetail({
   readonly progress: ProjectProgress;
   readonly tasks: readonly SerializedProjectTask[];
   readonly taskState: TaskState;
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
   readonly links: readonly EntityLinkSelection[];
   readonly todayIso: string;
 }) {
@@ -354,6 +371,8 @@ function ProjectDetail({
         <ProjectTasksTab
           tasks={tasks}
           taskState={taskState}
+          nextCursor={nextCursor}
+          hasMore={hasMore}
           todayIso={todayIso}
         />
       }

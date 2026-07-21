@@ -713,3 +713,6 @@ Statuses below are **Accepted** unless noted. Numbering is stable and permanent.
 - [`ARCHITECTURE_OVERVIEW.md`](../architecture/ARCHITECTURE_OVERVIEW.md) — how these decisions are realised technically.
 - [`ROADMAP_V2.md`](../roadmap/ROADMAP_V2.md) — the foundation items (`FND-*`) that implement these ADRs.
 - [`docs/README.md`](../README.md) — documentation index.
+
+
+**Pagination clarification (2026-07-21).** The collection and project task projection retain bounded reads but issue `limit + 1` and expose scope-bound, versioned cursors. Project cursors bind workspace, state and ordering; task cursors additionally bind project id. UI navigation stores the cursor in the URL and state-filter changes discard it, so a bounded read never silently makes a legitimate record unreachable.

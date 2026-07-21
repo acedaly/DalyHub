@@ -35,6 +35,8 @@ import {
   type ProjectOverview,
   type ProjectRelation,
   type ProjectRepository,
+  decodeProjectCursorForScope,
+  encodeProjectCursor,
 } from "~/kernel/projects";
 import type { WorkspaceContext } from "~/kernel/workspaces";
 import { parseWorkspaceId } from "~/kernel/workspaces";
@@ -117,6 +119,11 @@ export class D1ProjectRepository implements ProjectRepository {
   async listProjects(input: ListProjectsInput = {}): Promise<ProjectListPage> {
     const limit = validateSpineLimit(input.limit);
     const state = input.state ?? "all";
+    const scope = {
+      workspaceId: this.#workspaceId,
+      state,
+      orderBy: input.orderBy ?? "created",
+    } as const;
     const completedClause =
       state === "open"
         ? " AND sr.completed_at IS NULL"
@@ -130,6 +137,15 @@ export class D1ProjectRepository implements ProjectRepository {
       input.orderBy === "recent"
         ? "e.updated_at DESC, e.id DESC"
         : "e.created_at ASC, e.id ASC";
+
+    const cursorClause = input.cursor
+      ? input.orderBy === "recent"
+        ? " AND (e.updated_at < ? OR (e.updated_at = ? AND e.id < ?))"
+        : " AND (e.created_at > ? OR (e.created_at = ? AND e.id > ?))"
+      : "";
+    const cursor = input.cursor
+      ? decodeProjectCursorForScope(input.cursor, scope)
+      : null;
 
     // Active direct child-task counts per project, computed once for the whole page
     // (no per-project rollup call). Matches the spine rollup definition: active
@@ -157,15 +173,34 @@ export class D1ProjectRepository implements ProjectRepository {
                  AND tl.deleted_at IS NULL
            GROUP BY tl.target_entity_id
          ) tc ON tc.project_id = e.id
-         WHERE e.workspace_id = ? AND e.type = '${PROJECT}' AND e.deleted_at IS NULL${completedClause}
+         WHERE e.workspace_id = ? AND e.type = '${PROJECT}' AND e.deleted_at IS NULL${completedClause}${cursorClause}
          ORDER BY ${orderClause}
          LIMIT ?`,
       )
-      .bind(this.#workspaceId, this.#workspaceId, limit);
+      .bind(
+        this.#workspaceId,
+        this.#workspaceId,
+        ...(cursor ? [cursor.timestamp, cursor.timestamp, cursor.id] : []),
+        limit + 1,
+      );
 
     const result = await this.#run(statement);
     const rows = (result.results ?? []) as ProjectListRow[];
-    return { items: rows.map((row) => this.#toListItem(row)) };
+    const hasMore = rows.length > limit;
+    const pageRows = hasMore ? rows.slice(0, limit) : rows;
+    const last = pageRows.at(-1);
+    return {
+      items: pageRows.map((row) => this.#toListItem(row)),
+      hasMore,
+      nextCursor:
+        hasMore && last
+          ? encodeProjectCursor(scope, {
+              timestamp:
+                input.orderBy === "recent" ? last.updated_at : last.created_at,
+              id: last.id,
+            })
+          : null,
+    };
   }
 
   async getProjectOverview(id: string): Promise<ProjectOverview | null> {

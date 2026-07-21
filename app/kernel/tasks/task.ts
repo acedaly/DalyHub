@@ -181,6 +181,8 @@ export type TaskListItem = {
 /** A bounded page of task summaries. */
 export type TaskListPage = {
   readonly items: readonly TaskListItem[];
+  readonly nextCursor?: string | null;
+  readonly hasMore?: boolean;
 };
 
 /** The completion filter for a project's task list (PROJ-01). */
@@ -197,6 +199,8 @@ export type ListProjectTasksInput = {
   readonly state?: TaskStateFilter;
   /** Page size, clamped to a safe maximum; defaults to a safe page size. */
   readonly limit?: number;
+  /** Opaque cursor from the preceding matching page. */
+  readonly cursor?: string;
 };
 
 /**

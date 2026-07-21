@@ -49,6 +49,8 @@ export type ListProjectsInput = {
   readonly orderBy?: ProjectOrder;
   /** Page size, clamped to a safe maximum; defaults to a safe page size. */
   readonly limit?: number;
+  /** Opaque cursor returned by the preceding matching page. */
+  readonly cursor?: string;
 };
 
 /**
@@ -77,6 +79,8 @@ export type ProjectListItem = {
 /** A bounded page of project summaries. */
 export type ProjectListPage = {
   readonly items: readonly ProjectListItem[];
+  readonly nextCursor: string | null;
+  readonly hasMore: boolean;
 };
 
 /**
