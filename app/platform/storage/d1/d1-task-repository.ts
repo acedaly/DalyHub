@@ -184,6 +184,13 @@ export interface D1TaskRepositoryOptions {
   readonly activityIdGenerator?: IdGenerator;
   /** TEST-ONLY: force `completeTask`'s batch to fail at a chosen point. */
   readonly completeFault?: CompleteTaskFault;
+  /**
+   * TEST-ONLY: invoked once inside a planning mutation AFTER the initial read (and
+   * the open-state check) but BEFORE the guarded write, to simulate a concurrent
+   * mutation — e.g. the task being completed — racing the plan. Lets a test prove
+   * the in-write `completed_at IS NULL` guard rejects the race, not just the read.
+   */
+  readonly planRaceHook?: () => Promise<void>;
 }
 
 /** A resolved id → title lookup for a related entity, or null when unavailable. */
@@ -200,6 +207,7 @@ export class D1TaskRepository implements TaskRepository {
   readonly #newActivityId: IdGenerator;
   readonly #recorder: D1ActivityRecorder;
   readonly #completeFault?: CompleteTaskFault;
+  readonly #planRaceHook?: () => Promise<void>;
 
   constructor(
     db: D1Database,
@@ -214,6 +222,7 @@ export class D1TaskRepository implements TaskRepository {
       options.activityIdGenerator ?? activitySecureIdGenerator;
     this.#recorder = new D1ActivityRecorder(db);
     this.#completeFault = options.completeFault;
+    this.#planRaceHook = options.planRaceHook;
   }
 
   /* ---------------------------------------------------------------------- */
@@ -859,6 +868,9 @@ export class D1TaskRepository implements TaskRepository {
     if (!current) {
       throw new TaskNotFoundError();
     }
+    // Planning applies to OPEN work only: reject a completed task up front (and the
+    // guarded write below re-checks, so a completion racing this call is also caught).
+    this.#rejectIfCompleted(current);
     // Already planned for that exact date: idempotent no-op, no Activity.
     if (current.scheduledDate === scheduledDate) {
       return { task: current, changed: false };
@@ -868,6 +880,7 @@ export class D1TaskRepository implements TaskRepository {
     const nowTs = toStorageTimestamp(now);
     const group = this.#buildPlanGroup(entityId, current, scheduledDate, nowTs);
 
+    await this.#planRaceHook?.();
     const entityRow = await this.#runGuardedMutation(
       group.entityStmt,
       group.event,
@@ -875,12 +888,14 @@ export class D1TaskRepository implements TaskRepository {
       now,
     );
     if (!entityRow) {
-      throw new TaskNotFoundError();
+      // The open-gated guard matched nothing: the task was completed or deleted
+      // between the read and the write. Nothing was written or recorded — reject.
+      await this.#throwPlanGuardMiss(entityId);
     }
     return {
       task: {
         ...current,
-        updatedAt: fromStorageTimestamp(entityRow.updated_at),
+        updatedAt: fromStorageTimestamp(entityRow!.updated_at),
         scheduledDate,
       },
       changed: true,
@@ -894,6 +909,9 @@ export class D1TaskRepository implements TaskRepository {
     if (!current) {
       throw new TaskNotFoundError();
     }
+    // Planning applies to OPEN work only: reject a completed task up front (and the
+    // guarded write below re-checks, so a completion racing this call is also caught).
+    this.#rejectIfCompleted(current);
     // No plan to clear: idempotent no-op, no Activity.
     if (current.scheduledDate === null) {
       return { task: current, changed: false };
@@ -903,6 +921,7 @@ export class D1TaskRepository implements TaskRepository {
     const nowTs = toStorageTimestamp(now);
     const group = this.#buildPlanGroup(entityId, current, null, nowTs);
 
+    await this.#planRaceHook?.();
     const entityRow = await this.#runGuardedMutation(
       group.entityStmt,
       group.event,
@@ -910,12 +929,13 @@ export class D1TaskRepository implements TaskRepository {
       now,
     );
     if (!entityRow) {
-      throw new TaskNotFoundError();
+      // The open-gated guard matched nothing: completed or deleted mid-flight — reject.
+      await this.#throwPlanGuardMiss(entityId);
     }
     return {
       task: {
         ...current,
-        updatedAt: fromStorageTimestamp(entityRow.updated_at),
+        updatedAt: fromStorageTimestamp(entityRow!.updated_at),
         scheduledDate: null,
       },
       changed: true,
@@ -948,19 +968,25 @@ export class D1TaskRepository implements TaskRepository {
   ): Promise<BulkPlanResult> {
     const entityIds = validateTaskIdList(ids);
 
-    // Resolve all first; any unresolved id rejects the whole operation up front so
-    // no partial plan is ever committed (cross-workspace ids are "not found").
+    // Resolve all first; ANY id that is missing/cross-workspace/deleted (→ not
+    // found) OR completed (→ planning applies to open work) rejects the WHOLE
+    // operation up front, so no partial plan is ever committed. The open-gated
+    // per-task writes below are a second line of defence against a completion that
+    // races the batch — that task's group then no-ops (no plan, no Activity).
     const currents: TaskView[] = [];
     for (const entityId of entityIds) {
       const current = await this.getTask(entityId);
       if (!current) {
         throw new TaskNotFoundError();
       }
+      this.#rejectIfCompleted(current);
       currents.push(current);
     }
 
     const now = this.#clock();
     const nowTs = toStorageTimestamp(now);
+
+    await this.#planRaceHook?.();
 
     const statements: D1PreparedStatement[] = [];
     let changed = 0;
@@ -1047,7 +1073,9 @@ export class D1TaskRepository implements TaskRepository {
       payload,
     };
 
-    const entityStmt = this.#bumpEntityStatement(entityId, nowTs);
+    // The guard anchor and both detail writes gate on the task being OPEN, so a
+    // completion racing the write causes the whole group to no-op (ADR-030 §30.4a).
+    const entityStmt = this.#bumpOpenTaskStatement(entityId, nowTs);
     const detailsStmt = isClear
       ? this.#clearScheduledStatement(entityId, nowTs)
       : this.#setScheduledStatement(entityId, current, scheduledDate, nowTs);
@@ -1057,8 +1085,8 @@ export class D1TaskRepository implements TaskRepository {
 
   /**
    * Write ONLY `scheduled_date` on `task_details` (creating the row from the task's
-   * current values on first edit), gated on the active task. Never touches the due
-   * date, waiting columns or any other field.
+   * current values on first edit), gated on the active AND OPEN task. Never touches
+   * the due date, waiting columns or any other field, and never plans completed work.
    */
   #setScheduledStatement(
     entityId: string,
@@ -1072,7 +1100,7 @@ export class D1TaskRepository implements TaskRepository {
            (workspace_id, entity_id, entity_type, status, priority,
             due_date, scheduled_date, description, updated_at)
          SELECT ?, ?, '${TASK}', ?, ?, ?, ?, ?, ?
-         WHERE EXISTS (${this.#activeTaskExistsSql})
+         WHERE EXISTS (${this.#openTaskExistsSql})
          ON CONFLICT (workspace_id, entity_id) DO UPDATE SET
            scheduled_date = excluded.scheduled_date,
            updated_at = excluded.updated_at`,
@@ -1091,7 +1119,10 @@ export class D1TaskRepository implements TaskRepository {
       );
   }
 
-  /** Clear ONLY `scheduled_date` on `task_details` (leaves every other column). */
+  /**
+   * Clear ONLY `scheduled_date` on `task_details` (leaves every other column), gated
+   * on the active AND OPEN task so a completed task's plan is never cleared here.
+   */
   #clearScheduledStatement(
     entityId: string,
     nowTs: string,
@@ -1100,9 +1131,10 @@ export class D1TaskRepository implements TaskRepository {
       .prepare(
         `UPDATE task_details
          SET scheduled_date = NULL, updated_at = ?
-         WHERE workspace_id = ? AND entity_id = ?`,
+         WHERE workspace_id = ? AND entity_id = ?
+           AND EXISTS (${this.#openTaskExistsSql})`,
       )
-      .bind(nowTs, this.#workspaceId, entityId);
+      .bind(nowTs, this.#workspaceId, entityId, this.#workspaceId, entityId);
   }
 
   /* ---------------------------------------------------------------------- */
@@ -1312,6 +1344,21 @@ export class D1TaskRepository implements TaskRepository {
               AND deleted_at IS NULL`;
   }
 
+  /**
+   * Reusable EXISTS clause: the anchor is an active AND OPEN task in this workspace
+   * (`spine_records.completed_at IS NULL`). Planning applies to open work only, so
+   * the planning writes gate on this INSIDE the guarded batch — enforcing the
+   * invariant even against a completion that races between the read and the write
+   * (ADR-030 §30.4a). Binds `(workspaceId, entityId)`.
+   */
+  get #openTaskExistsSql(): string {
+    return `SELECT 1 FROM entities oe
+            JOIN spine_records osr
+              ON osr.workspace_id = oe.workspace_id AND osr.entity_id = oe.id
+            WHERE oe.workspace_id = ? AND oe.id = ? AND oe.type = '${TASK}'
+              AND oe.deleted_at IS NULL AND osr.completed_at IS NULL`;
+  }
+
   /** The guarded entity `updated_at` bump used as the Activity append anchor. */
   #bumpEntityStatement(entityId: string, nowTs: string): D1PreparedStatement {
     return this.#db
@@ -1321,6 +1368,58 @@ export class D1TaskRepository implements TaskRepository {
          RETURNING ${ENTITY_RETURNING}`,
       )
       .bind(nowTs, entityId, this.#workspaceId);
+  }
+
+  /**
+   * The planning guard-anchor bump: like {@link #bumpEntityStatement} but gated on
+   * the task being OPEN. If the task was completed (or deleted) between the read and
+   * this write, it matches nothing → `changes() = 0` → the guarded planning Activity
+   * is NOT appended and the gated `task_details` write no-ops, so a completed task
+   * is never planned and no planning Activity is ever recorded against it.
+   */
+  #bumpOpenTaskStatement(entityId: string, nowTs: string): D1PreparedStatement {
+    return this.#db
+      .prepare(
+        `UPDATE entities SET updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND type = '${TASK}' AND deleted_at IS NULL
+           AND EXISTS (SELECT 1 FROM spine_records
+                       WHERE workspace_id = ? AND entity_id = ? AND completed_at IS NULL)
+         RETURNING ${ENTITY_RETURNING}`,
+      )
+      .bind(nowTs, entityId, this.#workspaceId, this.#workspaceId, entityId);
+  }
+
+  /** The task-domain rejection for a planning mutation attempted on completed work. */
+  #completedError(): TaskValidationError {
+    return new TaskValidationError(
+      "completed",
+      "this task is completed — planning applies to open work",
+    );
+  }
+
+  /** Reject a planning mutation up front when the read shows the task completed. */
+  #rejectIfCompleted(task: TaskView): void {
+    if (task.completedAt !== null) {
+      throw this.#completedError();
+    }
+  }
+
+  /**
+   * Re-read a task after its open-gated planning guard matched nothing, and throw the
+   * honest reason: a completion that raced the write → the completed rejection; a
+   * deletion (or a vanished task) → not found. Used so the race is REJECTED, never
+   * silently swallowed.
+   */
+  async #throwPlanGuardMiss(entityId: string): Promise<never> {
+    const refreshed = await this.getTask(entityId, { includeDeleted: true });
+    if (
+      refreshed &&
+      refreshed.completedAt !== null &&
+      refreshed.deletedAt === null
+    ) {
+      throw this.#completedError();
+    }
+    throw new TaskNotFoundError();
   }
 
   /**

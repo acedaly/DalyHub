@@ -225,6 +225,128 @@ describe("planning independence (regressions)", () => {
 });
 
 /* -------------------------------------------------------------------------- */
+/* Repository — planning applies to OPEN work only (server-side invariant)       */
+/* -------------------------------------------------------------------------- */
+
+/** Count all three planning Activity types (planned / rescheduled / plan_cleared). */
+async function countPlanningActivity(): Promise<number> {
+  return (
+    (await countActivitiesOfType(TASK_PLANNED)) +
+    (await countActivitiesOfType(TASK_RESCHEDULED)) +
+    (await countActivitiesOfType(TASK_PLAN_CLEARED))
+  );
+}
+
+describe("planning rejects completed work", () => {
+  it("cannot plan a completed task (no scheduled date, no Activity)", async () => {
+    const id = await seedTask(WS);
+    const tasks = taskRepo(WS);
+    await tasks.completeTask(id);
+
+    const planningBefore = await countPlanningActivity();
+    await expect(
+      tasks.planTask(id, { scheduledDate: "2026-07-21" }),
+    ).rejects.toBeInstanceOf(TaskValidationError);
+
+    expect(await storedScheduled(WS, id)).toBeNull();
+    expect(await countPlanningActivity()).toBe(planningBefore);
+  });
+
+  it("cannot reschedule a completed task; its scheduled date is untouched", async () => {
+    const id = await seedTask(WS);
+    const tasks = taskRepo(WS);
+    await tasks.planTask(id, { scheduledDate: "2026-07-21" });
+    await tasks.completeTask(id); // completion keeps the scheduled date (independent)
+
+    const planningBefore = await countPlanningActivity();
+    await expect(
+      tasks.planTask(id, { scheduledDate: "2026-07-28" }),
+    ).rejects.toBeInstanceOf(TaskValidationError);
+
+    expect(await storedScheduled(WS, id)).toBe("2026-07-21");
+    expect(await countPlanningActivity()).toBe(planningBefore);
+  });
+
+  it("cannot clear the plan of a completed task", async () => {
+    const id = await seedTask(WS);
+    const tasks = taskRepo(WS);
+    await tasks.planTask(id, { scheduledDate: "2026-07-21" });
+    await tasks.completeTask(id);
+
+    const planCleared = await countActivitiesOfType(TASK_PLAN_CLEARED);
+    await expect(tasks.clearPlan(id)).rejects.toBeInstanceOf(
+      TaskValidationError,
+    );
+
+    expect(await storedScheduled(WS, id)).toBe("2026-07-21");
+    expect(await countActivitiesOfType(TASK_PLAN_CLEARED)).toBe(planCleared);
+  });
+
+  it("bulk plan rejects the WHOLE batch when any task is completed", async () => {
+    const open = await seedTask(WS, "Open");
+    const doneId = await seedTask(WS, "Done");
+    const tasks = taskRepo(WS);
+    await tasks.completeTask(doneId);
+
+    const planningBefore = await countPlanningActivity();
+    await expect(
+      tasks.planTasks([open, doneId], { scheduledDate: "2026-07-21" }),
+    ).rejects.toBeInstanceOf(TaskValidationError);
+
+    // Nothing changed — not even the open task in the selection.
+    expect(await storedScheduled(WS, open)).toBeNull();
+    expect(await countPlanningActivity()).toBe(planningBefore);
+  });
+
+  it("rejects a plan when the task is completed BETWEEN the read and the write", async () => {
+    const id = await seedTask(WS);
+    // A planner whose write races a completion injected right before the batch.
+    const planner = makeTaskRepository(makeContext(WS), {
+      clock: new FakeClock("2026-07-20T00:00:00.000Z").now,
+      activityIdGenerator: nextActivityId,
+      planRaceHook: async () => {
+        await taskRepo(WS).completeTask(id);
+      },
+    });
+
+    const planningBefore = await countPlanningActivity();
+    await expect(
+      planner.planTask(id, { scheduledDate: "2026-07-21" }),
+    ).rejects.toBeInstanceOf(TaskValidationError);
+
+    // The in-write guard rejected the race: completion stands, no plan, no Activity.
+    const view = await taskRepo(WS).getTask(id);
+    expect(view?.completedAt).not.toBeNull();
+    expect(view?.scheduledDate).toBeNull();
+    expect(await storedScheduled(WS, id)).toBeNull();
+    expect(await countPlanningActivity()).toBe(planningBefore);
+  });
+
+  it("rejects clearing a plan when completion races the write (plan preserved)", async () => {
+    const id = await seedTask(WS);
+    await taskRepo(WS).planTask(id, { scheduledDate: "2026-07-21" });
+    const planner = makeTaskRepository(makeContext(WS), {
+      clock: new FakeClock("2026-07-20T00:00:00.000Z").now,
+      activityIdGenerator: nextActivityId,
+      planRaceHook: async () => {
+        await taskRepo(WS).completeTask(id);
+      },
+    });
+
+    const planCleared = await countActivitiesOfType(TASK_PLAN_CLEARED);
+    await expect(planner.clearPlan(id)).rejects.toBeInstanceOf(
+      TaskValidationError,
+    );
+
+    // The scheduled date survives (clear no-oped) and completion stands.
+    const view = await taskRepo(WS).getTask(id);
+    expect(view?.completedAt).not.toBeNull();
+    expect(await storedScheduled(WS, id)).toBe("2026-07-21");
+    expect(await countActivitiesOfType(TASK_PLAN_CLEARED)).toBe(planCleared);
+  });
+});
+
+/* -------------------------------------------------------------------------- */
 /* Repository — the planning query never loses commitments to the backlog       */
 /* -------------------------------------------------------------------------- */
 

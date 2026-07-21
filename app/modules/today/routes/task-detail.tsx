@@ -459,6 +459,14 @@ async function handleClearPlan(
       task: serializeTaskView(result.task),
     };
   } catch (cause) {
+    if (cause instanceof TaskValidationError) {
+      // A rejected state (e.g. the task is completed — planning is open-work only).
+      return {
+        kind: "planning",
+        status: "error",
+        formError: cause.message,
+      };
+    }
     if (cause instanceof TaskNotFoundError) {
       return {
         kind: "planning",
