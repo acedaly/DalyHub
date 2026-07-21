@@ -263,10 +263,15 @@ test.describe("TODAY-05 — section navigation", () => {
     ).toHaveCount(1);
 
     // Back reopens the SAME task drawer (the provider's history entry was preserved).
+    // The dialog is labelled by its title, and its chrome heading names the task — a
+    // level-2 heading so it does not clash with the record's own content title.
     await page.goBack();
     const reopened = page.getByRole("dialog", { name: title });
     await expect(reopened).toBeVisible();
-    await expect(reopened.getByRole("heading", { name: title })).toBeVisible();
+    await expect(
+      reopened.getByRole("heading", { level: 2, name: title }),
+    ).toBeVisible();
+    await expect(page).toHaveURL(/drawer=/);
 
     // Forward returns to Today with the drawer closed and the heading present.
     await page.goForward();
