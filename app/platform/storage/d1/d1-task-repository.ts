@@ -56,6 +56,7 @@ import {
   TASK_WAITING_CLEARED,
   TASK_WAITING_STARTED,
   TaskNotFoundError,
+  TaskProjectArchivedError,
   TaskStorageError,
   TaskValidationError,
   validatePlanDate,
@@ -506,6 +507,7 @@ export class D1TaskRepository implements TaskRepository {
     if (!current) {
       throw new TaskNotFoundError();
     }
+    await this.#rejectIfParentProjectArchived(current);
 
     // Normalise and validate every provided field at the boundary before writing.
     const afterTitle =
@@ -699,6 +701,7 @@ export class D1TaskRepository implements TaskRepository {
     if (!current) {
       throw new TaskNotFoundError();
     }
+    await this.#rejectIfParentProjectArchived(current);
 
     // Resolve + validate an entity target BEFORE writing (active, in-workspace,
     // allowed type, not the task itself). A missing/cross-workspace/deleted target
@@ -839,6 +842,7 @@ export class D1TaskRepository implements TaskRepository {
     if (!current) {
       throw new TaskNotFoundError();
     }
+    await this.#rejectIfParentProjectArchived(current);
     if (current.waiting === null) {
       // Not waiting: idempotent no-op, no Activity.
       return { task: current, changed: false };
@@ -970,6 +974,7 @@ export class D1TaskRepository implements TaskRepository {
     if (!current) {
       throw new TaskNotFoundError();
     }
+    await this.#rejectIfParentProjectArchived(current);
     // Planning applies to OPEN work only: reject a completed task up front (and the
     // guarded write below re-checks, so a completion racing this call is also caught).
     this.#rejectIfCompleted(current);
@@ -1011,6 +1016,7 @@ export class D1TaskRepository implements TaskRepository {
     if (!current) {
       throw new TaskNotFoundError();
     }
+    await this.#rejectIfParentProjectArchived(current);
     // Planning applies to OPEN work only: reject a completed task up front (and the
     // guarded write below re-checks, so a completion racing this call is also caught).
     this.#rejectIfCompleted(current);
@@ -1081,6 +1087,7 @@ export class D1TaskRepository implements TaskRepository {
       if (!current) {
         throw new TaskNotFoundError();
       }
+      await this.#rejectIfParentProjectArchived(current);
       this.#rejectIfCompleted(current);
       currents.push(current);
     }
@@ -1250,6 +1257,7 @@ export class D1TaskRepository implements TaskRepository {
     if (!current) {
       throw new TaskNotFoundError();
     }
+    await this.#rejectIfParentProjectArchived(current);
     // Already completed: idempotent no-op (matching the spine contract). No batch,
     // no Activity. Any waiting was cleared by the completion that first set it.
     if (current.completedAt !== null) {
@@ -1503,6 +1511,37 @@ export class D1TaskRepository implements TaskRepository {
   #rejectIfCompleted(task: TaskView): void {
     if (task.completedAt !== null) {
       throw this.#completedError();
+    }
+  }
+
+  /**
+   * Reject ANY mutation up front when the task's direct parent is an ARCHIVED
+   * Project (PROJ-05 / ADR-037) — an archived Project is read-only until
+   * restored, and this is the shared repository-level guard every Task-detail
+   * mutation (title/detail edit, waiting, planning, single or bulk, and
+   * completion) runs through, so no route needs its own bespoke check. A Task
+   * floating directly under an Area has no Project parent to check.
+   *
+   * This is a READ-then-reject precondition, not folded into the write's SQL —
+   * unlike the archive/reopen/create-task guards in `D1SpineRepository`/
+   * `D1ProjectSettingsRepository`, which close the genuinely dangerous races
+   * (recreating unfinished work, or leaving an archived Project with an active
+   * child). A title edit, waiting change or planning change never threatens
+   * that invariant, so a benign, disclosed race window here (a mutation landing
+   * in the instant a project is archived) is an accepted, low-severity gap —
+   * see ADR-037 and the corrective PR body.
+   */
+  async #rejectIfParentProjectArchived(task: TaskView): Promise<void> {
+    if (task.project === null) return;
+    const row = await this.#db
+      .prepare(
+        `SELECT 1 FROM project_details
+         WHERE workspace_id = ? AND entity_id = ? AND archived_at IS NOT NULL`,
+      )
+      .bind(this.#workspaceId, task.project.id)
+      .first();
+    if (row !== null) {
+      throw new TaskProjectArchivedError();
     }
   }
 

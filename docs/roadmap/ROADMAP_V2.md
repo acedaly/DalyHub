@@ -277,6 +277,42 @@ Legend: **☐** not started **◐** in progress **☑** done **⊘** deferred
 - **Purpose.** Project configuration via the shared Settings pattern.
 - **Dependencies.** PROJ-01, DS-10.
 - **Expected outcome.** Project settings (area/goal, status, archival) via shared controls. **P2.**
+- **Status: in progress, decomposed into four slices.** The first slice merged
+  before CI completed (a failing unit suite skipped D1/build/E2E) and was
+  corrected in a follow-up hardening PR. **Do not mark PROJ-05 done** — the
+  shared Settings UI and Archived collection remain unbuilt.
+  - ☑ **Slice 1 — Project operational-state persistence and projection.**
+    Migration `0008_create_project_details.sql` (additive, STRICT, composite
+    FK to `entities`, CHECK-constrained `status`); the `ProjectSettingsRepository`
+    kernel contract + D1 adapter; `status`/`archivedAt` joined into
+    `ProjectListItem`/`ProjectOverview` (now non-optional — every projected
+    Project has an effective value); the `"archived"` collection state and
+    filter semantics. See [ADR-037](../decisions/ARCHITECTURE_DECISIONS.md#adr-037-project-operational-details-remain-module-owned).
+  - ☑ **Slice 2 — Concurrency-safe archival and cross-module mutation guards
+    (the corrective hardening PR).** Every `ProjectSettingsRepository`
+    transition (status change/archive/restore) is one conditional statement
+    whose precondition is folded into the write itself (no read-then-write
+    TOCTOU), atomic with its Activity event via the shared `recordAtomicMutation`
+    seam; a no-op appends nothing; concurrent identical requests yield exactly
+    one transition; the archive guard ("no active unfinished direct Task") is
+    enforced at commit time, closing the race PR #37 left open. An archived
+    Project is enforced read-only at the `D1TaskRepository`/`D1SpineRepository`
+    boundary — covering Task creation, reopening, moving, detail edits, waiting
+    and planning (single + bulk) — so no individual route needs its own
+    bespoke check. Today's "Continue working" is restricted to
+    `workflowStatus: "active"`. Health visibility is a single shared rule
+    (`isHealthVisible`) consumed by the Project cards, the Project overview and
+    Today. The authoritative "recent"/health-staleness timestamp is the later
+    of the spine entity's and the settings row's `updated_at` (ADR-037 §37.2).
+    See [ADR-037](../decisions/ARCHITECTURE_DECISIONS.md#adr-037-project-operational-details-remain-module-owned)
+    and [PROJECTS_MODULE.md](../development/PROJECTS_MODULE.md).
+  - ☐ **Slice 3 — Shared Project Settings UI and Archived collection.** The
+    Settings tab (DS-10b) surface for status/archive/restore, and the
+    `/projects?state=archived` collection UI. Not yet built — the repository
+    and loader contracts it needs are in place and tested (Slices 1–2).
+  - ☐ **Slice 4 — Today integration, accessibility, responsive and end-to-end
+    closure.** The full user-facing archive/restore journey, its Playwright
+    coverage, and any remaining Today/accessibility polish once Slice 3 ships.
 
 ### ☐ PROJ-06 — Mobile
 - **Purpose.** Mobile-complete Projects.

@@ -89,6 +89,17 @@ on-track projects show nothing extra. The loader gathers the facts for those bou
 projects in the same N+1-free read and evaluates with the owner-calendar clock; no
 other Today section is changed.
 
+### "Continue working" is workflow-status-restricted (PROJ-05, ADR-037 §37.6)
+
+The loader's `scope.projects.listProjects` call for this section passes
+`workflowStatus: "active"` alongside `state: "open"` — so a Planned or On-hold
+Project (both `state: "open"`, i.e. incomplete and non-archived) never appears as
+ordinary "keep going" work; only Projects the owner has actually marked **actively
+worked** do. Completed and archived Projects were already excluded by `state: "open"`
+and remain so. This is the SAME `workflowStatus` filter the Archived collection
+(PROJ-05 slice 3, not yet built) will use for its own query, and the same
+`isHealthVisible` rule every Project-health consumer shares.
+
 ## The Task Drawer (TODAY-02)
 
 TODAY-02 makes a task a **complete, editable, persistent record** opened in the

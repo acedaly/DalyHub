@@ -23,8 +23,10 @@
 
 import { env } from "cloudflare:workers";
 
+import { SpineParentUnavailableError } from "~/kernel/spine";
 import {
   TaskNotFoundError,
+  TaskProjectArchivedError,
   TaskValidationError,
   type SetWaitingInput,
 } from "~/kernel/tasks";
@@ -197,6 +199,9 @@ async function handleUpdate(
         formError: "This task is no longer available.",
       };
     }
+    if (cause instanceof TaskProjectArchivedError) {
+      return { kind: "update", status: "error", formError: cause.message };
+    }
     return {
       kind: "update",
       status: "error",
@@ -235,7 +240,18 @@ async function handleCompletion(
       };
     }
     return { kind: "completion", ok: true, task: serializeTaskView(task) };
-  } catch {
+  } catch (cause) {
+    if (
+      cause instanceof TaskProjectArchivedError ||
+      cause instanceof SpineParentUnavailableError
+    ) {
+      return {
+        kind: "completion",
+        ok: false,
+        message:
+          "This project is archived and read-only — restore it to make changes.",
+      };
+    }
     return {
       kind: "completion",
       ok: false,
@@ -320,6 +336,9 @@ async function handleSetWaiting(
         formError: "This task is no longer available.",
       };
     }
+    if (cause instanceof TaskProjectArchivedError) {
+      return { kind: "waiting", status: "error", formError: cause.message };
+    }
     return {
       kind: "waiting",
       status: "error",
@@ -346,6 +365,9 @@ async function handleClearWaiting(
         status: "error",
         formError: "This task is no longer available.",
       };
+    }
+    if (cause instanceof TaskProjectArchivedError) {
+      return { kind: "waiting", status: "error", formError: cause.message };
     }
     return {
       kind: "waiting",
@@ -384,6 +406,9 @@ async function handlePlan(
         formError: "This task is no longer available.",
       };
     }
+    if (cause instanceof TaskProjectArchivedError) {
+      return { kind: "planning", status: "error", formError: cause.message };
+    }
     return {
       kind: "planning",
       status: "error",
@@ -418,6 +443,9 @@ async function handleClearPlan(
         status: "error",
         formError: "This task is no longer available.",
       };
+    }
+    if (cause instanceof TaskProjectArchivedError) {
+      return { kind: "planning", status: "error", formError: cause.message };
     }
     return {
       kind: "planning",

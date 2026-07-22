@@ -139,8 +139,13 @@ export async function loader({ context }: Route.LoaderArgs) {
     // ordering + bound are applied AT the database (`orderBy: "recent"`), so the
     // globally most-recently-active projects are selected, never a creation-ordered
     // page re-sorted in the loader. No new store, no separate Today project model.
+    // `workflowStatus: "active"` (PROJ-05 §7 / ADR-037) restricts this to Projects
+    // the owner has marked actively worked — Planned and On-hold Projects are
+    // `state: "open"` (incomplete, non-archived) but deliberately excluded here so
+    // they never read as ordinary "keep going" work.
     const projectPage = await scope.projects.listProjects({
       state: "open",
+      workflowStatus: "active",
       orderBy: "recent",
       limit: RECENT_PROJECTS_COUNT,
     });
