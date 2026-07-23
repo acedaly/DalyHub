@@ -36,15 +36,23 @@ import {
   type SerializedProjectListItem,
 } from "./project-view";
 
-export type ProjectState = "open" | "completed" | "all";
+export type ProjectState = "open" | "completed" | "archived" | "all";
 
 /** The drawer key hosting the create form. */
 const NEW_PROJECT_KEY = "new-project";
 
+/**
+ * PROJ-05 §7: "All" keeps its existing, exact meaning (every non-archived
+ * project — open or completed); Archived is a SEPARATE, dedicated segment so
+ * archived Projects never leak into Open/Completed/All. This matches the
+ * repository's documented `ProjectStateFilter` semantics exactly
+ * (`d1-project-repository.ts`) — the UI never redefines them.
+ */
 const STATE_OPTIONS = [
   { value: "all", label: "All" },
   { value: "open", label: "Open" },
   { value: "completed", label: "Completed" },
+  { value: "archived", label: "Archived" },
 ] as const;
 
 export interface ProjectsCollectionViewProps {
@@ -327,16 +335,26 @@ function ProjectsCollection({
         <EmptyState
           icon={<EntityIcon type="project" />}
           title={
-            state === "completed" ? "No completed projects" : "No open projects"
+            state === "completed"
+              ? "No completed projects"
+              : state === "archived"
+                ? "No archived projects"
+                : "No open projects"
           }
-          description="Try a different state, or create a project."
+          description={
+            state === "archived"
+              ? "Projects you archive appear here, and can be restored at any time."
+              : "Try a different state, or create a project."
+          }
           primaryAction={
-            <DrawerTrigger
-              drawerKey={NEW_PROJECT_KEY}
-              className="dh-btn dh-btn--primary"
-            >
-              New project
-            </DrawerTrigger>
+            state === "archived" ? undefined : (
+              <DrawerTrigger
+                drawerKey={NEW_PROJECT_KEY}
+                className="dh-btn dh-btn--primary"
+              >
+                New project
+              </DrawerTrigger>
+            )
           }
         />
       }

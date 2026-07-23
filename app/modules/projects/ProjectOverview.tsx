@@ -26,6 +26,7 @@ import {
 import { formatCalendarDate } from "~/shared/task-record/task-view";
 
 import {
+  isProjectArchived,
   isProjectComplete,
   projectStateLabel,
   type ProjectProgress,
@@ -45,8 +46,10 @@ interface ProjectOverviewProps {
   readonly onRename: () => void;
   readonly tasksTab: ReactNode;
   readonly linksTab: ReactNode;
-  /** The PROJ-04 Activity tab — the shared DS-05 Timeline. Always the last tab. */
+  /** The PROJ-04 Activity tab — the shared DS-05 Timeline. */
   readonly activityTab: ReactNode;
+  /** The PROJ-05 Settings tab (DS-10b) — always the FINAL tab. */
+  readonly settingsTab: ReactNode;
   /** Controlled active tab (deep-linked via the Record Layout). */
   readonly activeTabId?: string;
   readonly onTabChange?: (tabId: string) => void;
@@ -63,9 +66,16 @@ export function ProjectOverview({
   tasksTab,
   linksTab,
   activityTab,
+  settingsTab,
   activeTabId,
   onTabChange,
 }: ProjectOverviewProps) {
+  // An archived project is read-only until restored (PROJ-05 §5): the
+  // Complete/Reopen and Rename actions are HIDDEN (not merely disabled) — the
+  // repository already rejects these mutations against an archived project, so
+  // this is a calm UI reflection of an invariant enforced elsewhere, not the
+  // only thing standing between the user and a failed request.
+  const archived = isProjectArchived(overview);
   // Archived → Completed → the specific workflow status (Planned/Active/On
   // hold) — the SAME precedence and label the collection Card uses, driven by
   // the optimistic `completed` override so the pill updates immediately on
@@ -135,21 +145,23 @@ export function ProjectOverview({
     summaryMetadata.push({ id: "s-updated", label: "Updated", value: updated });
   }
 
-  const primaryAction: RecordAction = completed
-    ? {
-        id: "reopen",
-        label: "Reopen project",
-        variant: "secondary",
-        disabled: completionPending,
-        onSelect: () => onToggleComplete(false),
-      }
-    : {
-        id: "complete",
-        label: "Complete project",
-        variant: "primary",
-        disabled: completionPending,
-        onSelect: () => onToggleComplete(true),
-      };
+  const primaryAction: RecordAction | undefined = archived
+    ? undefined
+    : completed
+      ? {
+          id: "reopen",
+          label: "Reopen project",
+          variant: "secondary",
+          disabled: completionPending,
+          onSelect: () => onToggleComplete(false),
+        }
+      : {
+          id: "complete",
+          label: "Complete project",
+          variant: "primary",
+          disabled: completionPending,
+          onSelect: () => onToggleComplete(true),
+        };
 
   const renameAction: RecordAction = {
     id: "rename",
@@ -167,10 +179,16 @@ export function ProjectOverview({
       status={{ label: state.label, tone: state.tone }}
       metadata={headerMetadata}
       primaryAction={primaryAction}
-      secondaryActions={[renameAction]}
+      secondaryActions={archived ? [] : [renameAction]}
       summary={{
         description: (
           <div className="dh-project-overview__summary">
+            {archived ? (
+              <p className="dh-project-overview__archived-banner" role="status">
+                This project is archived and read-only. Open{" "}
+                <strong>Settings</strong> to restore it.
+              </p>
+            ) : null}
             <p className="dh-project-overview__progress">
               <span className="dh-project-overview__progress-label">
                 Roll-up progress:
@@ -191,9 +209,11 @@ export function ProjectOverview({
       tabs={[
         { id: "tasks", label: "Tasks", content: tasksTab },
         { id: "links", label: "Key links", content: linksTab },
-        // Activity is the FINAL tab, per the shared tab vocabulary (Activity and
-        // Settings always sit last, in that order — DESIGN_SYSTEM.md → Tabs).
         { id: "activity", label: "Activity", content: activityTab },
+        // Settings is the FINAL tab, per the shared tab vocabulary
+        // (DESIGN_SYSTEM.md → Tabs: Activity and Settings always sit last, in
+        // that order).
+        { id: "settings", label: "Settings", content: settingsTab },
       ]}
     />
   );

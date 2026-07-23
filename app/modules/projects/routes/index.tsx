@@ -41,7 +41,9 @@ export function meta() {
 const PARENT_OPTIONS_LIMIT = 100;
 
 function parseState(value: string | null): ProjectState {
-  return value === "open" || value === "completed" ? value : "all";
+  return value === "open" || value === "completed" || value === "archived"
+    ? value
+    : "all";
 }
 
 export async function loader({ request, context }: Route.LoaderArgs) {

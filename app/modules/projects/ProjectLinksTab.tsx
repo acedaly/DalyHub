@@ -36,6 +36,9 @@ interface ProjectLinksTabProps {
     readonly direction: "outgoing" | "incoming";
   }) => Promise<void>;
   readonly onUnlink: (link: EntityLinkSelection) => Promise<void>;
+  /** PROJ-05: an archived project is read-only — link/unlink is always rejected
+   * server-side, so the picker's add/remove controls are HIDDEN, not disabled. */
+  readonly archived?: boolean;
 }
 
 function RelationshipRow({
@@ -63,6 +66,7 @@ export function ProjectLinksTab({
   searchTargets,
   onLink,
   onUnlink,
+  archived = false,
 }: ProjectLinksTabProps) {
   const relationships = [goal, area].filter(
     (relation): relation is ProjectRelation => relation !== null,
@@ -101,6 +105,7 @@ export function ProjectLinksTab({
           searchTargets={searchTargets}
           onLink={onLink}
           onUnlink={onUnlink}
+          readOnly={archived}
           renderTargetIcon={(type) =>
             isEntityType(type) ? <EntityIcon type={type} /> : null
           }

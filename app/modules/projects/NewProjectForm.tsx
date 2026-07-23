@@ -17,8 +17,6 @@
  * are aborted so a slow response can't clobber a newer one.
  */
 
-import { useCallback, useRef, useState } from "react";
-
 import {
   Form,
   FormActions,
@@ -33,6 +31,7 @@ import {
 import type { SelectOption } from "~/shared/forms/types";
 
 import type { CreateProjectResult } from "./routes/new";
+import { useParentOptionsSearch } from "./use-parent-options-search";
 
 type Values = { readonly title: string; readonly parentId: string };
 
@@ -51,72 +50,38 @@ interface NewProjectFormProps {
 }
 
 /**
- * The server-backed Area/Goal search: query the bounded parent-options endpoint,
- * aborting any in-flight request so a slower earlier response can't overwrite a
- * newer one. The seed options remain the shown set until (and unless) a search
- * returns a real options array, so an unrelated/failed response never empties the
- * control, and any previously-known option (including the current selection) is
- * retained so its label always resolves.
+ * Project creation discoverability (PROJ-05 §8): a Project must belong to an
+ * Area or advance a Goal (AGENTS.md §4 — parentage stays required; making it
+ * optional would need its own ADR). When the workspace has NEITHER yet, showing
+ * an empty, silently-unusable picker is a dead end (AGENTS.md §6). This is an
+ * HONEST explanation, not a fabricated fixture: it names the real reason and
+ * offers real, existing in-app destinations (the Areas/Goals module routes) —
+ * it never auto-creates an Area/Goal and never makes the field optional.
  */
-function useParentSearch(seed: readonly SelectOption[]) {
-  const [options, setOptions] = useState<readonly SelectOption[]>(seed);
-  const [loading, setLoading] = useState(false);
-  const known = useRef<Map<string, SelectOption>>(
-    new Map(seed.map((option) => [option.value, option])),
+function NoEligibleParents({ onCancel }: { readonly onCancel: () => void }) {
+  return (
+    <div className="dh-project-empty-parents" role="status">
+      <p>
+        A project belongs to an Area, or advances a Goal — and this workspace
+        doesn&rsquo;t have either yet, so there&rsquo;s nowhere for a new
+        project to go.
+      </p>
+      <p>Add an Area or a Goal first, then come back to create your project.</p>
+      <div className="dh-project-empty-parents__actions">
+        <a className="dh-btn dh-btn--secondary" href="/areas">
+          Go to Areas
+        </a>
+        <a className="dh-btn dh-btn--secondary" href="/goals">
+          Go to Goals
+        </a>
+      </div>
+      <FormActions>
+        <FormButton type="button" variant="secondary" onClick={onCancel}>
+          Close
+        </FormButton>
+      </FormActions>
+    </div>
   );
-  const abort = useRef<AbortController | null>(null);
-
-  const onSearch = useCallback((query: string) => {
-    abort.current?.abort();
-    const controller = new AbortController();
-    abort.current = controller;
-    setLoading(true);
-    void (async () => {
-      try {
-        const url = new URL("/projects/parent-options", window.location.origin);
-        url.searchParams.set("q", query);
-        const response = await fetch(url, {
-          signal: controller.signal,
-          headers: { accept: "application/json" },
-        });
-        if (!response.ok) {
-          setLoading(false);
-          return;
-        }
-        const body = (await response.json()) as {
-          readonly options?: readonly SelectOption[];
-        };
-        if (!Array.isArray(body.options)) {
-          setLoading(false);
-          return;
-        }
-        for (const option of body.options) {
-          known.current.set(option.value, option);
-        }
-        setOptions(body.options);
-        setLoading(false);
-      } catch (error) {
-        // An aborted request is expected when the user keeps typing — ignore it.
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setLoading(false);
-        }
-      }
-    })();
-  }, []);
-
-  /** Merge a value's known option into the shown set so its label always resolves. */
-  const withSelected = useCallback(
-    (value: string): readonly SelectOption[] => {
-      if (value.length === 0 || options.some((o) => o.value === value)) {
-        return options;
-      }
-      const selected = known.current.get(value);
-      return selected ? [selected, ...options] : options;
-    },
-    [options],
-  );
-
-  return { options, loading, onSearch, withSelected };
 }
 
 export function NewProjectForm({
@@ -124,7 +89,7 @@ export function NewProjectForm({
   onCreated,
   onCancel,
 }: NewProjectFormProps) {
-  const parentSearch = useParentSearch(parentOptions);
+  const parentSearch = useParentOptionsSearch(parentOptions);
   const form = useForm<Values>({
     initialValues: { title: "", parentId: "" },
     fields: {
@@ -164,6 +129,15 @@ export function NewProjectForm({
 
   const titleField = form.field("title");
   const parentField = form.field("parentId");
+
+  // No eligible Area/Goal exists at all (the seed page is the true, unfiltered
+  // count up to its bound) — show the honest explanation instead of a silently
+  // empty, unusable picker. `parentOptions` is never re-checked after a search:
+  // it always reflects "does at least one eligible parent exist", independent of
+  // whatever the user has typed.
+  if (parentOptions.length === 0) {
+    return <NoEligibleParents onCancel={onCancel} />;
+  }
 
   return (
     <Form

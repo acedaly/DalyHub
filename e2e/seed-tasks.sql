@@ -390,3 +390,35 @@ UPDATE spine_records SET completed_at = '2026-07-19T07:00:00.000Z'
 WHERE workspace_id = 'local-dev-workspace' AND entity_id IN ('pr-activity', 'pr-empty');
 UPDATE entities SET title = 'Activity showcase'
 WHERE workspace_id = 'local-dev-workspace' AND id = 'pr-activity';
+
+-- PROJ-05 Slice 3 — a dedicated project for the Settings tab + Archived
+-- collection e2e journey, isolated from the other Projects fixtures. Starts
+-- Planned, directly under Area `a-dh`, with no child tasks (so it is
+-- immediately eligible for archiving). The journey moves it to the Goal
+-- `g-launch`, changes its workflow status, archives and restores it — all
+-- reset below so every run starts from the same known point.
+INSERT OR IGNORE INTO entities (id, workspace_id, type, title, created_at, updated_at, deleted_at)
+VALUES
+  ('pr-settings', 'local-dev-workspace', 'project', 'Settings journey project', '2026-07-19T08:00:00.000Z', '2026-07-19T08:00:00.000Z', NULL);
+INSERT OR IGNORE INTO spine_records (workspace_id, entity_id, kind, completed_at)
+VALUES
+  ('local-dev-workspace', 'pr-settings', 'project', NULL);
+INSERT OR IGNORE INTO entity_links (id, workspace_id, source_entity_id, target_entity_id, type, created_at, updated_at, deleted_at)
+VALUES
+  ('l-prsettings-area', 'local-dev-workspace', 'pr-settings', 'a-dh', 'project.belongs_to_area', '2026-07-19T08:00:00.000Z', '2026-07-19T08:00:00.000Z', NULL);
+INSERT OR IGNORE INTO project_details (workspace_id, entity_id, status, archived_at, updated_at)
+VALUES
+  ('local-dev-workspace', 'pr-settings', 'planned', NULL, '2026-07-19T08:00:00.000Z');
+
+-- Reset the journey's mutable state: status back to Planned and not archived,
+-- and its structural parent restored to the Area (undoing a live move to the
+-- Goal). Soft-deleting any `project.advances_goal` link the journey created and
+-- re-activating the canonical `belongs_to_area` link mirrors how `move` itself
+-- transitions structural parentage (FND-07/ADR-014) — never a destructive delete.
+UPDATE project_details SET status = 'planned', archived_at = NULL, updated_at = '2026-07-19T08:00:00.000Z'
+WHERE workspace_id = 'local-dev-workspace' AND entity_id = 'pr-settings';
+UPDATE entity_links SET deleted_at = '2026-07-19T08:00:01.000Z', updated_at = '2026-07-19T08:00:01.000Z'
+WHERE workspace_id = 'local-dev-workspace' AND source_entity_id = 'pr-settings'
+  AND type = 'project.advances_goal' AND deleted_at IS NULL;
+UPDATE entity_links SET deleted_at = NULL, updated_at = '2026-07-19T08:00:00.000Z'
+WHERE workspace_id = 'local-dev-workspace' AND id = 'l-prsettings-area';

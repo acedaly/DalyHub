@@ -79,3 +79,41 @@ a.dh-btn {
 .dh-project-not-found {
   padding: var(--dh-space-8) var(--dh-space-4);
 }
+
+/* PROJ-05 — the archived-project read-only banner in the record Summary. Never
+ * colour-only: the text itself carries the meaning. */
+.dh-project-overview__archived-banner {
+  margin: 0 0 var(--dh-space-3);
+  padding: var(--dh-space-3) var(--dh-space-4);
+  border: var(--dh-border-width-thin) solid var(--dh-color-border);
+  border-radius: var(--dh-radius-md);
+  background: var(--dh-color-surface-sunken);
+  color: var(--dh-color-text);
+  font-weight: var(--dh-font-weight-medium);
+}
+
+/* PROJ-05 — a Settings tab read-only value (Area/Goal, workflow status) shown
+ * beside its label while a project is archived. */
+.dh-settings-readonly-value {
+  color: var(--dh-color-text-secondary);
+}
+
+/* PROJ-05 — the calm read-only notice shown in the Drawer in place of a form
+ * (Rename / Add task) that would only fail against an archived project. */
+.dh-project-archived-notice {
+  margin: 0;
+  color: var(--dh-color-text-secondary);
+}
+
+/* PROJ-05 §8 — the "no eligible Area/Goal" guidance in the New Project form. */
+.dh-project-empty-parents {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dh-space-3);
+}
+
+.dh-project-empty-parents__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--dh-space-3);
+}

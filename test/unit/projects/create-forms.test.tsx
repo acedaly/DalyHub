@@ -133,6 +133,52 @@ describe("NewProjectForm", () => {
       ).toBeGreaterThan(0),
     );
   });
+
+  describe("creation discoverability (PROJ-05 §8)", () => {
+    it("explains why a project can't be created when no Area/Goal exists, without an unusable picker", () => {
+      const onCancel = vi.fn();
+      renderInRouter(
+        <NewProjectForm
+          parentOptions={[]}
+          onCreated={() => {}}
+          onCancel={onCancel}
+        />,
+      );
+      // No silently-empty, unusable picker — an honest explanation instead.
+      expect(
+        screen.queryByRole("combobox", { name: /Area or Goal/ }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText(/doesn.t have either yet/)).toBeInTheDocument();
+      // Real, existing in-app destinations — never a fabricated fixture or an
+      // auto-created Area/Goal.
+      expect(screen.getByRole("link", { name: "Go to Areas" })).toHaveAttribute(
+        "href",
+        "/areas",
+      );
+      expect(screen.getByRole("link", { name: "Go to Goals" })).toHaveAttribute(
+        "href",
+        "/goals",
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(onCancel).toHaveBeenCalled();
+    });
+
+    it("keeps the picker usable when at least one Area/Goal exists", () => {
+      renderInRouter(
+        <NewProjectForm
+          parentOptions={parentOptions}
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      expect(
+        screen.getByRole("combobox", { name: /Area or Goal/ }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByRole("link", { name: "Go to Areas" }),
+      ).not.toBeInTheDocument();
+    });
+  });
 });
 
 describe("NewTaskForm", () => {

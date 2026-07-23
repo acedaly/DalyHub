@@ -4,6 +4,7 @@ import type { ProjectListItem, ProjectOverview } from "~/kernel/projects";
 import { parseWorkspaceId } from "~/kernel/workspaces";
 import {
   isHealthVisible,
+  isProjectArchived,
   isProjectComplete,
   projectProgress,
   projectProgressFromRollup,
@@ -140,6 +141,13 @@ describe("state pill", () => {
   it("isProjectComplete reflects only completedAt", () => {
     expect(isProjectComplete({ completedAt: null })).toBe(false);
     expect(isProjectComplete({ completedAt: "x" })).toBe(true);
+  });
+
+  it("isProjectArchived (PROJ-05) reflects only archivedAt", () => {
+    expect(isProjectArchived({ archivedAt: null })).toBe(false);
+    expect(isProjectArchived({ archivedAt: "2026-07-21T00:00:00.000Z" })).toBe(
+      true,
+    );
   });
 });
 

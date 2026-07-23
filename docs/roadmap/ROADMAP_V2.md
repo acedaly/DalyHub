@@ -279,8 +279,10 @@ Legend: **☐** not started **◐** in progress **☑** done **⊘** deferred
 - **Expected outcome.** Project settings (area/goal, status, archival) via shared controls. **P2.**
 - **Status: in progress, decomposed into four slices.** The first slice merged
   before CI completed (a failing unit suite skipped D1/build/E2E) and was
-  corrected in a follow-up hardening PR. **Do not mark PROJ-05 done** — the
-  shared Settings UI and Archived collection remain unbuilt.
+  corrected in a follow-up hardening PR. Slice 3 (the shared Settings UI and
+  Archived collection) is now done. **Do not mark PROJ-05 done** — Slice 4
+  (Today integration + full accessibility/responsive/E2E closure) remains
+  unbuilt.
   - ☑ **Slice 1 — Project operational-state persistence and projection.**
     Migration `0008_create_project_details.sql` (additive, STRICT, composite
     FK to `entities`, CHECK-constrained `status`); the `ProjectSettingsRepository`
@@ -315,13 +317,56 @@ Legend: **☐** not started **◐** in progress **☑** done **⊘** deferred
     the settings row's `updated_at` (ADR-037 §37.2).
     See [ADR-037](../decisions/ARCHITECTURE_DECISIONS.md#adr-037-project-operational-details-remain-module-owned)
     and [PROJECTS_MODULE.md](../development/PROJECTS_MODULE.md).
-  - ☐ **Slice 3 — Shared Project Settings UI and Archived collection.** The
-    Settings tab (DS-10b) surface for status/archive/restore, and the
-    `/projects?state=archived` collection UI. Not yet built — the repository
-    and loader contracts it needs are in place and tested (Slices 1–2).
+  - ☑ **Slice 3 — Shared Project Settings UI and Archived collection.** The
+    project record's final **Settings** tab (Tasks · Key links · Activity ·
+    Settings), composed ENTIRELY from the shared DS-10b Settings system
+    (`SettingsLayout`/`SettingsGroup`/`SettingsRow`/`DangerousAction`/
+    `ConfirmationDialog`/`useImmediateSetting`) and DS-06 controls — no bespoke
+    settings screen, form engine, confirmation dialog or notification system,
+    no new route, no new migration. An IMMEDIATE, server-backed searchable
+    Area/Goal picker (reusing the SAME `/projects/parent-options` endpoint the
+    New-Project form uses, extracted into a shared search hook) submits the
+    existing `move` intent with optimistic apply + revert-on-failure; an
+    IMMEDIATE workflow-status select (Planned/Active/On hold) submits the
+    existing `set_status` intent with the same coordinator; a `DangerousAction`
+    in a visually-separated danger group submits `archive`, explains the
+    consequences (out of normal views, project + tasks read-only, restorable,
+    unfinished direct Tasks must be completed/moved first), needs no typed
+    confirmation phrase (a reversible action gets DS-10b's lighter declared
+    friction), and surfaces a blocked archive's typed `ProjectArchiveBlockedError`
+    message inline and retryably without ever claiming success or mutating
+    anything. An archived Project renders read-only: Complete/Reopen, Rename,
+    Add task, Key-links add/remove, and the Organisation/Workflow/Archive
+    controls are HIDDEN (not disabled) across the record and its Drawer forms,
+    reflecting — never duplicating — the Slice 2 repository/route guards; an
+    ordinary (non-destructive) "Restore" action submits the existing `restore`
+    intent and preserves the workflow status. The collection's `SegmentedFilter`
+    gains a fourth **Archived** option reusing the existing `CollectionLayout`/
+    `Card`/`LoadMore`/keyset-pagination machinery; `"all"` keeps its exact
+    existing meaning and an archived Project never leaks into it or vice versa.
+    The New-Project form explains — honestly, with real links to the existing
+    `/areas`/`/goals` routes, never a fabricated fixture or auto-created entity —
+    why it can't yet create a Project when no Area/Goal exists at all. Tested at
+    all three layers: pure/unit (view-model, archived-control-hiding,
+    creation-discoverability), component (Settings tab behaviour, archived
+    read-only rendering, Archived collection/empty-state), real Workers/D1 route
+    integration (`set_status`/`move`/`archive`/`restore` at the actual mutate
+    action, every non-restore intent rejected against an archived project, the
+    Archived collection's state separation + keyset pagination + scope-bound
+    cursor), and a focused real-D1 Playwright journey
+    ([`e2e/project-settings.spec.ts`](../../e2e/project-settings.spec.ts)).
+    `pnpm run format:check`, `lint`, `typecheck`, `test`, `build`,
+    `deploy:dry-run` and `test:e2e` are green. See
+    [PROJECTS_MODULE.md](../development/PROJECTS_MODULE.md). **Deliberately
+    deferred to Slice 4:** Today's "Continue working" still does not filter on
+    `workflowStatus: "active"`; full PROJ-05 accessibility/responsive/E2E
+    closure is not claimed by this slice's narrower journey.
   - ☐ **Slice 4 — Today integration, accessibility, responsive and end-to-end
-    closure.** The full user-facing archive/restore journey, its Playwright
-    coverage, and any remaining Today/accessibility polish once Slice 3 ships.
+    closure.** Wire Today's "Continue working" to `workflowStatus: "active"`
+    now that Slice 3 gives an owner a way to activate a Project; full
+    accessibility/responsive/Playwright closure for the whole PROJ-05 surface
+    (Settings tab + Archived collection) beyond Slice 3's focused journey; any
+    remaining polish.
 
 ### ☐ PROJ-06 — Mobile
 - **Purpose.** Mobile-complete Projects.

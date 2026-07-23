@@ -46,6 +46,12 @@ interface ProjectTasksTabProps {
   readonly nextCursor: string | null;
   readonly taskState: TaskState;
   readonly todayIso: string;
+  /**
+   * PROJ-05: an archived project is read-only — creating a Task under it is
+   * always rejected server-side, so "Add task" is HIDDEN (not disabled) rather
+   * than offered and failing.
+   */
+  readonly archived?: boolean;
 }
 
 /** The subset of the tasks endpoint's payload a "Load more" fetch reads back. */
@@ -244,6 +250,7 @@ export function ProjectTasksTab({
   nextCursor,
   taskState,
   todayIso,
+  archived = false,
 }: ProjectTasksTabProps) {
   const { openDrawer } = useDrawer();
   const [searchParams] = useSearchParams();
@@ -265,12 +272,14 @@ export function ProjectTasksTab({
           value={taskState}
           label="Filter tasks by state"
         />
-        <DrawerTrigger
-          drawerKey={NEW_TASK_KEY}
-          className="dh-btn dh-btn--secondary"
-        >
-          Add task
-        </DrawerTrigger>
+        {archived ? null : (
+          <DrawerTrigger
+            drawerKey={NEW_TASK_KEY}
+            className="dh-btn dh-btn--secondary"
+          >
+            Add task
+          </DrawerTrigger>
+        )}
       </div>
 
       {items.length === 0 ? (
@@ -284,14 +293,20 @@ export function ProjectTasksTab({
                 ? "No open tasks"
                 : "No tasks yet"
           }
-          description="Add a task to start moving this project forward."
+          description={
+            archived
+              ? "This archived project has no tasks matching this filter."
+              : "Add a task to start moving this project forward."
+          }
           primaryAction={
-            <DrawerTrigger
-              drawerKey={NEW_TASK_KEY}
-              className="dh-btn dh-btn--primary"
-            >
-              Add task
-            </DrawerTrigger>
+            archived ? undefined : (
+              <DrawerTrigger
+                drawerKey={NEW_TASK_KEY}
+                className="dh-btn dh-btn--primary"
+              >
+                Add task
+              </DrawerTrigger>
+            )
           }
         />
       ) : (
