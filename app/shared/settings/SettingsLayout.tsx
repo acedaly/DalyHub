@@ -88,10 +88,15 @@ export function SettingsLayout({
       if (!lastFocused || lastFocused.isConnected) {
         return;
       }
+      // The tracked element is gone. Whether or not we act on it now, it can
+      // never be a valid target again — discard it unconditionally, so a
+      // control removed WHILE focus had already moved elsewhere can never be
+      // replayed against a later, unrelated mutation once focus happens to
+      // land on <body> for some other reason.
+      lastFocused = null;
       if (document.activeElement !== document.body) {
         return;
       }
-      lastFocused = null;
       root.focus({ preventScroll: true });
     };
     const observer = new MutationObserver(reclaimIfOrphaned);

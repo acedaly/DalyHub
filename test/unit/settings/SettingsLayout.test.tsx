@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -224,6 +225,79 @@ describe("DS-10b SettingsLayout — focus safety net (PROJ-05 Slice 4)", () => {
     expect(document.activeElement).toBe(bodyWasActive);
     expect(document.activeElement).not.toBe(
       screen.getByRole("region", { name: "Unrelated settings" }),
+    );
+  });
+
+  it("discards a tracked element the moment it is removed, even while focus is elsewhere, so it can never hijack a LATER unrelated mutation once focus reaches <body>", async () => {
+    function StaleFocusHarness() {
+      const [trackedPresent, setTrackedPresent] = useState(true);
+      const [unrelatedShown, setUnrelatedShown] = useState(false);
+      return (
+        <FeedbackProvider>
+          <main id="main-content" tabIndex={-1}>
+            <button type="button">Outside control</button>
+            <SettingsLayout aria-label="Stale focus settings">
+              <SettingsGroup title="Info">
+                {trackedPresent ? (
+                  <button type="button">Tracked control</button>
+                ) : null}
+                {unrelatedShown ? <p>Unrelated content appeared.</p> : null}
+              </SettingsGroup>
+            </SettingsLayout>
+            <button type="button" onClick={() => setTrackedPresent(false)}>
+              Remove tracked control
+            </button>
+            <button type="button" onClick={() => setUnrelatedShown(true)}>
+              Trigger unrelated mutation
+            </button>
+          </main>
+        </FeedbackProvider>
+      );
+    }
+    render(<StaleFocusHarness />);
+
+    // 1. Focus a control inside SettingsLayout — the layout starts tracking it.
+    const tracked = screen.getByRole("button", { name: "Tracked control" });
+    act(() => tracked.focus());
+    expect(document.activeElement).toBe(tracked);
+
+    // 2. Focus deliberately moves OUTSIDE the layout.
+    const outside = screen.getByRole("button", { name: "Outside control" });
+    act(() => outside.focus());
+    expect(document.activeElement).toBe(outside);
+
+    // 3. The formerly-focused Settings control is removed while focus remains
+    // outside — the layout must discard the now-disconnected reference
+    // immediately, not just when <body> happens to be active.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove tracked control" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Tracked control" }),
+      ).toBeNull(),
+    );
+
+    // 4. Focus must remain exactly where it legitimately was.
+    expect(document.activeElement).toBe(outside);
+
+    // 5. Focus now legitimately moves to <body> for an unrelated reason.
+    act(() => outside.blur());
+    expect(document.activeElement).toBe(document.body);
+
+    // 6. A later, genuinely unrelated mutation occurs inside the surface.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Trigger unrelated mutation" }),
+    );
+    await waitFor(() =>
+      expect(screen.getByText("Unrelated content appeared.")).toBeVisible(),
+    );
+
+    // 7. The stale, already-discarded tracked element must not resurrect and
+    // pull focus back into the Settings region.
+    expect(document.activeElement).toBe(document.body);
+    expect(document.activeElement).not.toBe(
+      screen.getByRole("region", { name: "Stale focus settings" }),
     );
   });
 });
