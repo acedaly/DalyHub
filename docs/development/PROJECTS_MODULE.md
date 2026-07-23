@@ -60,10 +60,10 @@ composed by the shell — never in a central switch.
 
 | Route | Kind | Responsibility |
 | --- | --- | --- |
-| `GET /projects` | page | The collection: `projects.listProjects({state,cursor})` + first-page Area/Goal seed options for the create form. Also serves keyset pages for the collection's "Load more" (via `useFetcher().load`). |
+| `GET /projects` | page | The collection: `projects.listProjects({state,cursor})` (state: `open` / `completed` / **`archived`** / `all` — PROJ-05) + first-page Area/Goal seed options for the create form. Also serves keyset pages for the collection's "Load more" (via `useFetcher().load`). |
 | `POST /projects/new` | resource | Create a project via `spine.createProject` (parent kind resolved server-side). |
-| `GET /projects/:projectId` | page | The overview: `getProjectOverview` + `spine.getRollup` + `listProjectTasks` + `project.relates_to` links. |
-| `POST /projects/:projectId/mutate` | resource | `rename` / `complete` / `reopen` / `create_task` / `link` / `unlink` (verified project id). |
+| `GET /projects/:projectId` | page | The overview: `getProjectOverview` + `spine.getRollup` + `listProjectTasks` + `project.relates_to` links + a first-page Area/Goal seed for the Settings tab's organisation picker (PROJ-05). |
+| `POST /projects/:projectId/mutate` | resource | `rename` / `complete` / `reopen` / `create_task` / `link` / `unlink` / **`set_status`** / **`move`** / **`archive`** / **`restore`** (PROJ-05, verified project id). Any intent OTHER than `archive`/`restore` is rejected against an archived project with a calm `"archived_rejected"` outcome — never a partial mutation. |
 | `GET /projects/:projectId/link-targets` | resource | The Key links picker's target search (verified project anchor). |
 | `GET /projects/:projectId/tasks` | resource | One keyset page of the project's tasks (`state`, `cursor`) for the Tasks tab's "Load more" — fetched WITHOUT navigating, so `?drawer=` state is untouched. Returns `400` for a tampered/cross-scope cursor. |
 | `GET /projects/:projectId/activity` | resource | **(PROJ-04)** One bounded page of the project's DS-05 Timeline, mapped server-side from `activity.listForEntity(projectId)`. Verified active-project anchor (missing/deleted/wrong-kind/cross-workspace → calm `404`); tampered/cross-scope cursor → calm `400`; cursor internals opaque; batched entity resolution (no N+1). |
@@ -254,6 +254,93 @@ It mirrors the task record's `/tasks/:taskId/activity` precedent
   soft-deleted anchors are calm not-found; unknown event types never crash; payload
   presentation is bounded (no sensitive free-text waiting content surfaced).
 
+## Settings, archival and the Archived collection (PROJ-05 Slice 3)
+
+The project record's **Settings tab** — the final tab (Tasks · Key links · Activity ·
+**Settings**) — and the `/projects?state=archived` collection view, composed ENTIRELY
+from the shared DS-10b Settings system (`~/shared/settings`) and DS-06 controls. No
+bespoke settings screen, form engine, confirmation dialog or notification system;
+the module supplies only typed values, the async apply/confirm callbacks (posting to
+the ALREADY-EXISTING, trusted `/projects/:projectId/mutate` action — Slices 1–2 built
+`set_status`/`move`/`archive`/`restore` and every repository invariant they need) and
+the copy. No new route, no new migration.
+
+- **Composition** ([`ProjectSettingsTab.tsx`](../../app/modules/projects/ProjectSettingsTab.tsx)):
+  `SettingsLayout` (a visually-hidden `h2 "Settings"` above it keeps the record's
+  heading outline non-skipping, matching the Activity tab's DEBT-21 precedent) with
+  three groups when the project is NOT archived, or two when it is:
+  - **Organisation** — an IMMEDIATE `SelectField` (`useImmediateSetting`) for the
+    project's Area/Goal, server-backed and searchable via the SAME
+    `/projects/parent-options` endpoint the New-Project form uses (extracted into the
+    shared [`use-parent-options-search.ts`](../../app/modules/projects/use-parent-options-search.ts)
+    hook so neither picker duplicates the search/abort/known-option logic). Submits
+    the existing `move` intent; the route resolves the parent's KIND server-side —
+    the client never asserts it. Reselecting the CURRENT parent is skipped client-side
+    (no request, no toast) as well as being a server-side no-op (no Activity). A
+    rejected move reverts the control to the last-committed value and shows the
+    server's message (DS-10b's declared revert-on-failure for immediate settings).
+  - **Workflow** — an IMMEDIATE native `<select>` (Planned/Active/On hold) submitted
+    via `set_status`, with the SAME optimistic-apply/revert-on-failure coordinator.
+    Never conflated with completion/archival; precedence stays Archived → Completed →
+    the workflow status (`project-view.ts#projectStateLabel`), and health remains
+    visible only for `status === "active"`, incomplete, non-archived Projects
+    (`isHealthVisible`, unchanged from Slice 2).
+  - **Archive** (`tone="danger"`) — a `DangerousAction` submitting `archive`. The
+    confirmation explains: it moves the project out of normal views, the project AND
+    its tasks become read-only, it can be restored at any time, and unfinished direct
+    Tasks must be completed or moved first. Reversible, so NO typed confirmation
+    phrase is required (DS-10b's declared friction level for a reversible dangerous
+    action). A blocked archive surfaces the typed `ProjectArchiveBlockedError`
+    message INLINE in the still-open dialog (retryable) — it never claims success,
+    never mutates `project_details`, and never appends Activity (Slice 2's race-proof
+    guard already guarantees this; the UI only surfaces it calmly).
+  - **Archived (read-only)** — when `archivedAt !== null`: an ordinary/restorative
+    "Restore project…" action (a plain button + a `ConfirmationDialog` with
+    `tone="default"`, deliberately NOT `DangerousAction` — restoring is not
+    destructive) submitting `restore`, plus the preserved Area/Goal and workflow
+    status rendered as plain read-only text (no editable control).
+- **Archived is enforced read-only in the UI, not just the repository.** Mutating
+  controls that would only ever fail against an archived project are HIDDEN, never
+  merely disabled: `ProjectOverview` omits the Complete/Reopen primary action and the
+  Rename secondary action entirely; `ProjectTasksTab` omits "Add task"; `ProjectLinksTab`
+  passes `readOnly` to the shared `EntityLinkPicker`, hiding its add/remove controls
+  (existing links stay visible); the Drawer resolver refuses to render the "New task"
+  or "Rename" forms even for a stale/hand-edited `?drawer=` deep link, showing a calm
+  read-only notice instead. This is a calm reflection of the Slice 2 repository/route
+  guard, not a substitute for it — every one of these mutations is still rejected
+  server-side regardless of what the client renders. A child Task opened from an
+  archived project keeps using the SAME shared Task record/Drawer (no second Task UI);
+  its own mutation attempts are rejected by the existing PR #38 guards and surface the
+  existing calm failure messaging — audited, not rebuilt.
+- **The record shows the archived state prominently.** The header status pill already
+  reads "Archived" (unchanged precedence: Archived → Completed → workflow status); the
+  Summary adds a calm banner ("This project is archived and read-only. Open Settings
+  to restore it.") — text-carried, never colour-only.
+- **The Archived collection** ([`ProjectsCollection.tsx`](../../app/modules/projects/ProjectsCollection.tsx)):
+  the existing `SegmentedFilter` gains a fourth, dedicated **Archived** option
+  alongside All/Open/Completed — reusing the SAME `CollectionLayout`, `Card`,
+  `LoadMore` and keyset-pagination machinery as every other state. `"all"` keeps its
+  exact existing meaning (every non-archived project); an archived Project never
+  leaks into Open/Completed/All, and the reverse never happens either — this is
+  enforced by the ALREADY-BUILT (Slice 1) `D1ProjectRepository.listProjects` SQL, not
+  new UI logic. Archived cards show no active-work health metadata (`healthVisible`
+  is already `false` for an archived Project — the same shared `isHealthVisible` rule
+  every other surface uses) and are real links to the canonical record. The Archived
+  empty state is distinct ("No archived projects" / "Projects you archive appear
+  here, and can be restored at any time.") and deliberately omits a second "New
+  project" CTA (creating a project doesn't address "nothing is archived").
+- **Project creation discoverability** ([`NewProjectForm.tsx`](../../app/modules/projects/NewProjectForm.tsx)):
+  when the workspace has NEITHER an Area nor a Goal at all (the create form's seed
+  page — unfiltered, up to its bound — is empty), the form shows an honest
+  explanation instead of a silently-unusable picker, with real links to the existing
+  `/areas` and `/goals` module placeholder routes. It never auto-creates an Area/Goal,
+  never makes parentage optional (that would need its own ADR — AGENTS.md §4), and the
+  picker stays fully usable once at least one eligible parent exists.
+- **No new route, no new migration.** Every mutation goes through the intents Slices
+  1–2 already built and tested at the repository/route boundary; this slice adds only
+  the UI that calls them and the `parentOptions` seed on the record loader (mirroring
+  the collection loader's existing seed).
+
 ## Today integration
 
 The Today "Continue working" fixture seam is replaced with the **real** bounded read
@@ -267,16 +354,30 @@ needs attention (`at_risk`/`blocked`/`stale`) so the calm dashboard stays unclut
 ## Testing
 
 - **Unit / pure** ([`test/unit/projects`](../../test/unit/projects)): presentation
-  mapping, empty-progress (never 100%), serialisation; DS-06 create-form validation +
-  submit + server errors; collection + overview component behaviour (incl. **Activity is
-  the final tab**); the **project Activity descriptors**
+  mapping, empty-progress (never 100%), serialisation, `isProjectArchived` (PROJ-05);
+  DS-06 create-form validation + submit + server errors, incl. the **creation
+  discoverability** guidance when no Area/Goal exists and its recovery once one does
+  ([`create-forms.test.tsx`](../../test/unit/projects/create-forms.test.tsx)); collection
+  + overview component behaviour (incl. **Settings is the final tab**, the Archived
+  segmented-filter option, and archived cards/records rendering with no active-work
+  health and their mutating controls HIDDEN — `ProjectOverview.test.tsx`,
+  `ProjectsCollection.test.tsx`, `ProjectTasksTab.test.tsx`, `ProjectLinksTab.test.tsx`);
+  the **project Activity descriptors**
   ([`project-activity-descriptors.test.ts`](../../test/unit/projects/project-activity-descriptors.test.ts):
   `project.completed`/`project.reopened` render clearly, kernel defaults still apply,
-  unknown types use the safe fallback, no raw JSON); and the **`ProjectActivityTab`**
+  unknown types use the safe fallback, no raw JSON); the **`ProjectActivityTab`**
   ([`ProjectActivityTab.test.tsx`](../../test/unit/projects/ProjectActivityTab.test.tsx):
   renders the shared `role="feed"` Timeline, appends + de-duplicates pages, retries a
   failed load, opens a referenced task through the shared Drawer, re-reads page one when
-  the reload key changes, and shows the empty state).
+  the reload key changes, and shows the empty state); and the **`ProjectSettingsTab`**
+  ([`ProjectSettingsTab.test.tsx`](../../test/unit/projects/ProjectSettingsTab.test.tsx)
+  — PROJ-05 Slice 3): current Area/Goal/status/archive state render (Goal preferred
+  over its derived Area as the structural parent); the searchable Area/Goal picker;
+  status change success/no-op/failure+revert; move success/failure+revert; the archive
+  confirmation (consequence copy, success, the typed blocked message shown inline and
+  retryable, duplicate-submit prevention); archived read-only rendering (no
+  Organisation/Workflow/second-Archive controls); and restore success with ordinary
+  (non-danger) dialog styling.
 - **Workers/D1 integration** ([`test/kernel/projects.test.ts`](../../test/kernel/projects.test.ts)):
   `listProjects` (Area/Goal resolution incl. via-Goal, counts matching the rollup,
   state filters, workspace isolation, bounds, order), `getProjectOverview`
@@ -291,7 +392,22 @@ needs attention (`at_risk`/`blocked`/`stale`) so the calm dashboard stays unclut
   parent-substitution rejection, wrong-kind/cross-workspace 404s, revalidation, the
   collection loader's cursor walk reaching every project, the `/projects/:id/tasks`
   endpoint (keyset walk + `400` on a tampered cursor), and the `/projects/parent-options`
-  search (Areas/Goals only, filtered by query, kinds resolved server-side). The
+  search (Areas/Goals only, filtered by query, kinds resolved server-side). **PROJ-05
+  Slice 3 settings intents** (same file, `PROJ-05 settings intents` describe block):
+  `set_status` change + no-op + invalid value; `move` Area→Goal, Goal→Area, Area→Area,
+  the live-through-Goal Area resolution, current-parent no-op, wrong-kind/missing/
+  deleted/cross-workspace parent rejection; `archive` success (and its effect on the
+  archived/open/all collection states), blocked-by-unfinished-Task (settings/Activity
+  left unchanged), unblocked once the Task is completed, repeated archive as a no-op,
+  and a wrong-kind/cross-workspace project id 404; `restore` success, preserved
+  workflow status across archive→restore, repeated/never-archived restore as a no-op;
+  and EVERY non-restore intent (rename/complete/create_task/set_status/move/unlink)
+  rejected against an archived project with the calm `"archived_rejected"` outcome,
+  mutating nothing. **The Archived collection state** (same file, `project loaders`
+  describe block): Open/Completed/Archived/All separation (an archived project never
+  leaks into "all"), keyset pagination reaching every archived project with a
+  scope-bound cursor (an Open-state cursor rejected against the Archived query), and
+  no wrong-kind/deleted/cross-workspace project ever surfacing. The
   **project Activity route** ([`test/kernel/project-activity-route.test.ts`](../../test/kernel/project-activity-route.test.ts)):
   newest-first with the `(occurredAt,id)` tie-break, multi-page reachability with no
   gaps/duplicates and `nextCursor`→null at exhaustion, tampered/cross-project cursor
@@ -314,7 +430,18 @@ needs attention (`at_risk`/`blocked`/`stale`) so the calm dashboard stays unclut
   the Tasks tab "Load more" reaches a second-page task while the roll-up total stays
   authoritative, an appended page-2 task opens the shared Task Drawer without disturbing
   state, and the New-Project parent picker searches the server for an Area.
-- **PROJ-05 settings + archival (slice 2 hardening) — real Workers/D1**
+- **E2E — Settings + Archived collection** ([`e2e/project-settings.spec.ts`](../../e2e/project-settings.spec.ts),
+  PROJ-05 Slice 3): the smallest focused real-D1 journey proving the shared surface is
+  actually wired — open a project, open Settings, change workflow status, move it to a
+  Goal via the searchable picker, archive it (confirmation + consequence copy),
+  confirm the record shows Archived with Rename/Complete hidden and Restore offered,
+  reach it again via `/projects?state=archived`, restore it (keyboard-operated:
+  focus + Enter, dialog focus trap), confirm normal controls return with the
+  preserved workflow status, and no 320px horizontal overflow with the Settings tab
+  and a confirmation dialog open. Full PROJ-05 accessibility/responsive/Today-integration
+  E2E closure is Slice 4 — this journey is deliberately narrow, not exhaustive.
+- **PROJ-05 settings + archival (slices 1–2 foundation, hardened at the repository
+  boundary) — real Workers/D1**
   ([`test/kernel/project-settings.test.ts`](../../test/kernel/project-settings.test.ts)):
   normal status transition, status no-op, two simultaneous identical status
   requests (exactly one transition), conflicting simultaneous status requests
@@ -344,10 +471,13 @@ needs attention (`at_risk`/`blocked`/`stale`) so the calm dashboard stays unclut
 PROJ-03 (notes/knowledge, blocked on NOTES-01) and PROJ-06 (mobile-specific
 enhancements) are **not started**. PROJ-05 (settings: area/goal reassignment,
 status models, archival) has its persistence + concurrency/archival-invariant
-foundation done (slices 1–2 below); its shared Settings UI and Archived
-collection (slices 3–4) are **not yet built** — PROJ-05 overall is NOT done.
-(PROJ-02 health and PROJ-04 the Activity tab are done.) Deferred refinements are
-tracked in [`PRODUCT_DEBT.md`](../product/PRODUCT_DEBT.md).
+foundation (slices 1–2) AND its shared Settings UI + Archived collection
+(**slice 3**, this document's "Settings, archival and the Archived collection"
+section) done. **Slice 4 — Today integration (`workflowStatus: "active"` on
+"Continue working"), full accessibility/responsive/E2E closure, and any
+remaining polish — is NOT yet built, so PROJ-05 overall remains IN PROGRESS,
+not done.** (PROJ-02 health and PROJ-04 the Activity tab are done.) Deferred
+refinements are tracked in [`PRODUCT_DEBT.md`](../product/PRODUCT_DEBT.md).
 
 ## Health testing (PROJ-02)
 
@@ -386,6 +516,6 @@ Migration `0008_create_project_details.sql` adds the Projects-owned, workspace-s
 - **An archived Project is read-only until restored, enforced at the repository boundary — not duplicated per mutation.** `D1SpineRepository` rejects creating a Task under an archived Project, reopening a Task whose Project is archived, and moving a Task into or out of an archived Project (reusing the existing `SpineParentUnavailableError` — spine stays unaware of PROJ-05's TypeScript contracts by design, only its SQL adapter references `project_details`). `D1TaskRepository` folds the SAME "parent Project not archived" guard directly into the domain SQL statement (not just a preceding read) for `updateTask`, `setWaiting`, `clearWaiting`, `planTask` and `clearPlan` (single + bulk), so a concurrent archive racing one of these writes is resolved at the statement's own atomic commit, exactly like the archive guard itself; `completeTask` deliberately keeps a read-based-only guard, because completing a task can never itself recreate unfinished work under any interleaving with `archive`, so no SQL fold is needed there. Generic `task.relates_to` link/unlink is guarded TWICE, deliberately: the Task-detail route pre-checks via `scope.projectSettings.get(task.project.id)` for a fast, friendly rejection with no wasted mutation attempt, and `D1EntityLinkRepository`'s own `create`/`unlink`/`restore` SQL additionally folds the same "either endpoint is a Task under an archived Project" predicate into its `NOT EXISTS` clauses — so ANY caller of the generic link repository is covered, not just this route, and a concurrent archive can never race a link mutation to completion (a blocked attempt throws `EntityLinkEndpointArchivedError`, mapped to the same calm message).
 - **One authoritative presentation timestamp (ADR-037 §37.2).** `ProjectListItem.updatedAt`/`ProjectOverview.updatedAt` are the LATER of the spine entity's and the settings row's `updated_at`, computed at read time (never copied into a second column) — so a status change, archive or restore affects "recent" collection ordering and the Project Activity tab's in-place reload key exactly like a rename does.
 - **Health visibility is one shared rule.** `isHealthVisible` (in `project-view.ts`) — true only for an open, incomplete, non-archived, `"active"`-status Project — is the SAME function the Project cards, BOTH the Project overview header pill and its detailed `ProjectHealthPanel`, and Today's cards all consult; a Planned or On-hold Project never shows a stalled/at-risk warning, and a Completed or Archived Project never shows an active-work warning anywhere it's rendered.
-- **Today's "Continue working" still uses `state: "open"` only (ADR-037 §37.7).** Restricting it to `workflowStatus: "active"` is the eventual intent, but every newly created Project defaults to `"planned"` and the Settings UI that would let an owner activate one (roadmap Slice 3) does not exist yet — filtering on `"active"` today would make every new Project permanently unreachable from Today. `listProjects`' `workflowStatus` parameter is implemented and tested; Today adopts it once Slice 3/4 ships a status-selection path.
+- **Today's "Continue working" still uses `state: "open"` only (ADR-037 §37.7).** Restricting it to `workflowStatus: "active"` is the eventual intent, but this is DELIBERATELY still deferred to Slice 4: Slice 3 (this PR) ships the Settings UI that lets an owner move a Project to `"active"`, but wiring Today's filter is its own change with its own accessibility/responsive/E2E closure, kept out of this PR's scope per the roadmap's slice boundaries. `listProjects`' `workflowStatus` parameter remains implemented and tested; Today adopts it in Slice 4.
 
-This slice deliberately does **not** yet wire the shared Settings UI or the `/projects?state=archived` collection UI — the repository and loader contracts those need are in place and tested. See [ROADMAP_V2 PROJ-05](../roadmap/ROADMAP_V2.md#-proj-05--settings) for the remaining slices.
+Slice 3 (see the "Settings, archival and the Archived collection" section above) wires the shared Settings UI and the `/projects?state=archived` collection UI onto exactly these repository/route contracts — no new migration, no new route, no repository change. See [ROADMAP_V2 PROJ-05](../roadmap/ROADMAP_V2.md#-proj-05--settings) for Slice 4 (Today integration + full accessibility/responsive/E2E closure), the only remaining slice.

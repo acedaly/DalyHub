@@ -45,6 +45,7 @@ function renderTab(
   props: {
     tasks: readonly SerializedProjectTask[];
     nextCursor: string | null;
+    archived?: boolean;
   },
   tasksLoader: (request: Request) => unknown,
 ) {
@@ -60,6 +61,7 @@ function renderTab(
               nextCursor={props.nextCursor}
               taskState="open"
               todayIso="2026-07-21"
+              archived={props.archived}
             />
           </DrawerProvider>
         ),
@@ -124,6 +126,38 @@ describe("Project Tasks tab pagination", () => {
     expect(
       screen.queryByRole("button", { name: "Load more tasks" }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("Project Tasks tab — archived project (PROJ-05 §5)", () => {
+  it("hides 'Add task' — creating a task under an archived project always fails server-side", () => {
+    renderTab(
+      {
+        tasks: [task({ id: "t1", title: "Only task" })],
+        nextCursor: null,
+        archived: true,
+      },
+      () => ({ tasks: [], nextCursor: null }),
+    );
+    expect(
+      screen.queryByRole("link", { name: "Add task" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Add task" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides 'Add task' in the empty state too, with calm archived-aware copy", () => {
+    renderTab({ tasks: [], nextCursor: null, archived: true }, () => ({
+      tasks: [],
+      nextCursor: null,
+    }));
+    expect(
+      screen.queryByRole("link", { name: "Add task" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/archived project has no tasks/),
+    ).toBeInTheDocument();
   });
 });
 

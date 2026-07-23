@@ -24,7 +24,8 @@ type LoaderData = {
   projects: readonly SerializedProjectListItem[];
   nextCursor: string | null;
   parentOptions: readonly { value: string; label: string }[];
-  state: "open" | "completed" | "all";
+  parentOptionsFailed?: boolean;
+  state: "open" | "completed" | "archived" | "all";
   failed: boolean;
 };
 
@@ -63,6 +64,7 @@ function renderCollection(
             projects={data.projects}
             nextCursor={data.nextCursor}
             parentOptions={data.parentOptions as never}
+            parentOptionsFailed={data.parentOptionsFailed}
             state={data.state}
             failed={data.failed}
           />
@@ -198,6 +200,64 @@ describe("Projects collection", () => {
     expect(screen.getByText("No open projects")).toBeInTheDocument();
   });
 
+  describe("Archived collection (PROJ-05 §7)", () => {
+    it("offers Archived as a fourth, dedicated segment (Open/Completed/All unchanged)", () => {
+      renderCollection({
+        projects: [],
+        nextCursor: null,
+        parentOptions: [],
+        state: "all",
+        failed: false,
+      });
+      const group = screen.getByRole("group", {
+        name: "Filter projects by state",
+      });
+      expect(
+        within(group)
+          .getAllByRole("link")
+          .map((link) => link.textContent?.trim()),
+      ).toEqual(["All", "Open", "Completed", "Archived"]);
+    });
+
+    it("renders archived cards with the Archived state and no health metadata", () => {
+      renderCollection({
+        projects: [
+          project({
+            id: "archived-1",
+            title: "Sunset project",
+            archivedAt: "2026-07-21T00:00:00.000Z",
+            healthVisible: false,
+          }),
+        ],
+        nextCursor: null,
+        parentOptions: [],
+        state: "archived",
+        failed: false,
+      });
+      expect(screen.getByText("Sunset project")).toBeInTheDocument();
+      expect(screen.getAllByText("Archived").length).toBeGreaterThan(0);
+      expect(screen.queryByText(/^Health/)).not.toBeInTheDocument();
+      // A real link to the canonical record, like every other card.
+      const link = screen.getByRole("link", { name: "Open Sunset project" });
+      expect(link).toHaveAttribute("href", "/projects/archived-1");
+    });
+
+    it("shows a distinct, honest empty state for the Archived filter with no 'New project' CTA", () => {
+      renderCollection({
+        projects: [],
+        nextCursor: null,
+        parentOptions: [],
+        state: "archived",
+        failed: false,
+      });
+      expect(screen.getByText("No archived projects")).toBeInTheDocument();
+      // Only the persistent header "New project" trigger renders — the
+      // Archived empty state deliberately omits a SECOND create CTA (creating
+      // a project doesn't address "no archived projects").
+      expect(screen.getAllByText("New project")).toHaveLength(1);
+    });
+  });
+
   it("opens a project via a real link (accessible, not a div onClick)", () => {
     renderCollection({
       projects: [project()],
@@ -208,6 +268,28 @@ describe("Projects collection", () => {
     });
     const link = screen.getByRole("link", { name: "Open DalyHub V2" });
     expect(link).toHaveAttribute("href", "/projects/p1");
+  });
+
+  it("distinguishes a parent-options load failure from a confirmed-empty workspace in the create form", () => {
+    renderCollection({
+      projects: [project()],
+      nextCursor: null,
+      parentOptions: [],
+      parentOptionsFailed: true,
+      state: "all",
+      failed: false,
+    });
+
+    fireEvent.click(screen.getAllByText("New project")[0]!);
+
+    // The load-failure message renders, never the false "no Areas or Goals
+    // exist" domain claim a generic empty-array fallback would otherwise show.
+    expect(
+      screen.getByText("Couldn’t load Areas and Goals."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/doesn.t have either yet/),
+    ).not.toBeInTheDocument();
   });
 
   it("does not claim a total, then appends the next keyset page without duplicates", async () => {

@@ -34,9 +34,15 @@ test.describe("PROJ-04 project Activity tab", () => {
       page.getByRole("heading", { name: "Activity showcase" }),
     ).toBeVisible();
 
-    // Tabs follow the shared vocabulary: Tasks, Key links, Activity LAST.
+    // Tabs follow the shared vocabulary: Tasks, Key links, Activity, then
+    // Settings LAST (PROJ-05 Slice 3).
     const tabs = page.getByRole("tab");
-    await expect(tabs).toHaveText(["Tasks", "Key links", "Activity"]);
+    await expect(tabs).toHaveText([
+      "Tasks",
+      "Key links",
+      "Activity",
+      "Settings",
+    ]);
 
     await page.getByRole("tab", { name: "Activity" }).click();
     const feed = page.getByRole("feed", { name: "Project activity" });

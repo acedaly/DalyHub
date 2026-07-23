@@ -24,6 +24,7 @@ import { listActiveLinks } from "~/platform/entity-links";
 import { requireAuthenticatedSession } from "~/platform/request";
 import { resolveAuthenticatedWorkspaceScope } from "~/platform/workspaces";
 import { evaluateProjectHealth } from "~/kernel/project-health";
+import type { ProjectWorkflowStatus } from "~/kernel/project-settings";
 import { ownerCalendarIso } from "~/shared/datetime";
 import {
   createOwnerHealthContext,
@@ -48,10 +49,12 @@ import { NewTaskForm } from "../NewTaskForm";
 import { ProjectActivityTab } from "../ProjectActivityTab";
 import { ProjectLinksTab } from "../ProjectLinksTab";
 import { ProjectOverview } from "../ProjectOverview";
+import { ProjectSettingsTab } from "../ProjectSettingsTab";
 import { NEW_TASK_KEY, ProjectTasksTab } from "../ProjectTasksTab";
 import { RenameProjectForm } from "../RenameProjectForm";
 import { PROJECT_RELATES_TO } from "../project-links";
 import {
+  isProjectArchived,
   projectProgressFromRollup,
   serializeProjectOverview,
   serializeProjectTask,
@@ -124,6 +127,12 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     healthContext,
   );
 
+  // The Settings tab's "Area or Goal" picker seeds from the CURRENT parent
+  // alone (already present on `overview`) — it never fetches the whole
+  // Area/Goal catalogue. Every other eligible parent is discovered through the
+  // existing `/projects/parent-options?q=` search, so this loader (and every
+  // ordinary revalidation of it — a task edit, a completion, a settings
+  // change) stays independent of how many Areas/Goals the workspace has.
   const [taskPage, links] = await Promise.all([
     scope.tasks.listProjectTasks(projectId, { state: taskState }),
     listActiveLinks(
@@ -183,8 +192,17 @@ export default function ProjectDetailRoute({
   );
 }
 
-/** The Drawer resolver: a task record, the new-task form, or the rename form. */
+/**
+ * The Drawer resolver: a task record, the new-task form, or the rename form. An
+ * ARCHIVED project is read-only (PROJ-05 §5): a Task record itself stays
+ * readable (its OWN Drawer still opens — the shared task surface already
+ * communicates a rejected mutation calmly, no second error path is built here),
+ * but the "New task" and "Rename" forms are never rendered — even for a stale or
+ * hand-edited `?drawer=` deep link — because every mutation they'd attempt is
+ * rejected server-side anyway. A calm read-only panel explains why instead.
+ */
 function createProjectDrawerRenderer(overview: SerializedProjectOverview) {
+  const archived = isProjectArchived(overview);
   return function render(entry: DrawerEntry): DrawerRenderResult | null {
     const separator = entry.key.indexOf(":");
     const kind = separator === -1 ? entry.key : entry.key.slice(0, separator);
@@ -198,6 +216,13 @@ function createProjectDrawerRenderer(overview: SerializedProjectOverview) {
       };
     }
     if (entry.key === NEW_TASK_KEY) {
+      if (archived) {
+        return {
+          title: "Project archived",
+          description: "Restore this project to add tasks.",
+          children: <ArchivedDrawerNotice action="add a task" />,
+        };
+      }
       return {
         title: "New task",
         description: `Add a task to ${overview.title}.`,
@@ -205,6 +230,13 @@ function createProjectDrawerRenderer(overview: SerializedProjectOverview) {
       };
     }
     if (entry.key === RENAME_KEY) {
+      if (archived) {
+        return {
+          title: "Project archived",
+          description: "Restore this project to rename it.",
+          children: <ArchivedDrawerNotice action="rename this project" />,
+        };
+      }
       return {
         title: "Rename project",
         description: "Give this project a clearer name.",
@@ -218,6 +250,17 @@ function createProjectDrawerRenderer(overview: SerializedProjectOverview) {
     }
     return null;
   };
+}
+
+/** A calm, read-only explanation shown in place of a form that would only fail
+ * against an archived project — never a raw error, never a dead end. */
+function ArchivedDrawerNotice({ action }: { readonly action: string }) {
+  return (
+    <p className="dh-project-archived-notice">
+      This project is archived and read-only, so you can&rsquo;t {action}
+      right now. Open the project&rsquo;s Settings tab to restore it first.
+    </p>
+  );
 }
 
 function NewTaskDrawerHost({ projectId }: { readonly projectId: string }) {
@@ -284,6 +327,7 @@ function ProjectDetail({
   const [searchParams, setSearchParams] = useSearchParams();
 
   const completed = overview.completedAt !== null;
+  const archived = isProjectArchived(overview);
 
   // The active record tab is deep-linked via `?tab=` (DESIGN_SYSTEM → Tabs: record
   // tabs are preserved per record and deep-linkable), so a reload, a shared URL or
@@ -292,7 +336,9 @@ function ProjectDetail({
   // `?drawer=` state, and replaces history (no per-click Back stop).
   const requestedTab = searchParams.get("tab");
   const activeTabId =
-    requestedTab === "links" || requestedTab === "activity"
+    requestedTab === "links" ||
+    requestedTab === "activity" ||
+    requestedTab === "settings"
       ? requestedTab
       : "tasks";
   const onTabChange = useCallback(
@@ -314,15 +360,93 @@ function ProjectDetail({
   );
 
   const postMutation = useCallback(
-    async (body: FormData): Promise<ProjectMutationResult> => {
+    async (
+      body: FormData,
+      signal?: AbortSignal,
+    ): Promise<ProjectMutationResult> => {
       const response = await fetch(
         `/projects/${encodeURIComponent(overview.id)}/mutate`,
-        { method: "POST", body },
+        { method: "POST", body, signal },
       );
       return (await response.json()) as ProjectMutationResult;
     },
     [overview.id],
   );
+
+  /** A calm, generic failure message for a settings mutation whose route did
+   * not itself return one (e.g. a network failure, or a malformed response). */
+  const SETTINGS_GENERIC_ERROR = "That couldn't be saved. Please try again.";
+
+  const onSetStatus = useCallback(
+    async (status: ProjectWorkflowStatus, signal: AbortSignal) => {
+      const body = new FormData();
+      body.set("intent", "set_status");
+      body.set("status", status);
+      const result = await postMutation(body, signal);
+      if (result.kind !== "settings" || !result.ok) {
+        throw new Error(
+          result.kind === "settings" && result.message
+            ? result.message
+            : SETTINGS_GENERIC_ERROR,
+        );
+      }
+      if (result.outcome === "changed") {
+        revalidator.revalidate();
+      }
+    },
+    [postMutation, revalidator],
+  );
+
+  const onMove = useCallback(
+    async (parentId: string, signal: AbortSignal) => {
+      const body = new FormData();
+      body.set("intent", "move");
+      body.set("parentId", parentId);
+      const result = await postMutation(body, signal);
+      if (result.kind !== "settings" || !result.ok) {
+        throw new Error(
+          result.kind === "settings" && result.message
+            ? result.message
+            : SETTINGS_GENERIC_ERROR,
+        );
+      }
+      if (result.outcome === "moved") {
+        revalidator.revalidate();
+      }
+    },
+    [postMutation, revalidator],
+  );
+
+  const onArchive = useCallback(async () => {
+    const body = new FormData();
+    body.set("intent", "archive");
+    const result = await postMutation(body);
+    if (result.kind !== "settings" || !result.ok) {
+      // The typed `ProjectArchiveBlockedError` message (or another calm
+      // server-supplied message) surfaces INLINE in the confirmation dialog —
+      // never claims success, never mutates anything, never appends Activity.
+      throw new Error(
+        result.kind === "settings" && result.message
+          ? result.message
+          : SETTINGS_GENERIC_ERROR,
+      );
+    }
+    revalidator.revalidate();
+  }, [postMutation, revalidator]);
+
+  const onRestore = useCallback(async () => {
+    const body = new FormData();
+    body.set("intent", "restore");
+    const result = await postMutation(body);
+    if (result.kind !== "settings" || !result.ok) {
+      throw new Error(
+        result.kind === "settings" && result.message
+          ? result.message
+          : SETTINGS_GENERIC_ERROR,
+      );
+    }
+    revalidator.revalidate();
+  }, [postMutation, revalidator]);
 
   const submitCompletion = useCallback(
     async (intent: "complete" | "reopen") => {
@@ -443,6 +567,7 @@ function ProjectDetail({
           nextCursor={tasksNextCursor}
           taskState={taskState}
           todayIso={todayIso}
+          archived={archived}
         />
       }
       linksTab={
@@ -454,17 +579,31 @@ function ProjectDetail({
           searchTargets={searchTargets}
           onLink={onLink}
           onUnlink={onUnlink}
+          archived={archived}
         />
       }
       activityTab={
         // The project's real FND-05 Activity, rendered by the shared DS-05 Timeline.
-        // `reloadKey` is the project's `updatedAt`: a rename/complete/reopen bumps it
-        // and revalidation re-reads the first page (the new event appears at the top,
-        // no hard reload, no duplicate rows); a drawer-only URL change leaves it
-        // untouched, so already-loaded Activity pages are preserved.
+        // `reloadKey` is the project's `updatedAt`: a rename/complete/reopen (or a
+        // PROJ-05 status/archive/restore change — the SAME effective timestamp,
+        // ADR-037 §37.2) bumps it and revalidation re-reads the first page (the new
+        // event appears at the top, no hard reload, no duplicate rows); a
+        // drawer-only URL change leaves it untouched, so already-loaded Activity
+        // pages are preserved.
         <ProjectActivityTab
           projectId={overview.id}
           reloadKey={overview.updatedAt}
+        />
+      }
+      settingsTab={
+        // PROJ-05 Slice 3 — the shared DS-10b Settings surface. Always the final
+        // tab (DESIGN_SYSTEM.md → Tabs).
+        <ProjectSettingsTab
+          overview={overview}
+          onSetStatus={onSetStatus}
+          onMove={onMove}
+          onArchive={onArchive}
+          onRestore={onRestore}
         />
       }
     />

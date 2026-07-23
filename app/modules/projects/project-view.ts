@@ -144,6 +144,20 @@ export function isProjectComplete(project: {
 }
 
 /**
+ * Is the project archived (PROJ-05)? Archival is reversible and NOT spine
+ * soft-deletion (ADR-037 §37.1) — an archived project remains structurally
+ * present and readable, merely read-only until restored. Every UI surface that
+ * decides whether to hide a mutating control (Rename, Complete/Reopen, Add
+ * task, Key links add/remove, the Area/Goal and workflow-status settings, a
+ * second Archive) calls this SAME function rather than inventing its own check.
+ */
+export function isProjectArchived(project: {
+  readonly archivedAt: string | null;
+}): boolean {
+  return project.archivedAt !== null;
+}
+
+/**
  * The open/completed display pill. PROJ-01 models ONLY open vs completed (no health,
  * no custom status — those are PROJ-02/PROJ-05). Meaning is in the label, never
  * colour alone.

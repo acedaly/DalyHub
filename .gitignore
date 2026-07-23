@@ -30,3 +30,6 @@ worker-configuration.d.ts
 # OS / editor cruft
 .DS_Store
 *.log
+
+# Claude Code local worktree/session state
+/.claude/

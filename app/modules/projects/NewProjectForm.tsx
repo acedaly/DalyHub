@@ -17,8 +17,6 @@
  * are aborted so a slow response can't clobber a newer one.
  */
 
-import { useCallback, useRef, useState } from "react";
-
 import {
   Form,
   FormActions,
@@ -33,6 +31,7 @@ import {
 import type { SelectOption } from "~/shared/forms/types";
 
 import type { CreateProjectResult } from "./routes/new";
+import { useParentOptionsSearch } from "./use-parent-options-search";
 
 type Values = { readonly title: string; readonly parentId: string };
 
@@ -44,87 +43,86 @@ const FIELD_LABELS: Record<string, string> = {
 interface NewProjectFormProps {
   /** The seed Area/Goal parent options (value = entity id; description = kind). */
   readonly parentOptions: readonly SelectOption[];
+  /**
+   * True when the workspace's Area/Goal options could not be loaded (a
+   * storage/query failure) — distinct from a genuinely empty workspace. An
+   * empty `parentOptions` array alone is never enough to claim "no Areas or
+   * Goals exist"; that claim requires the load to have actually succeeded.
+   */
+  readonly parentOptionsFailed?: boolean;
   /** Called with the new project's id after a successful create. */
   readonly onCreated: (projectId: string) => void;
   /** Called when the user cancels. */
   readonly onCancel: () => void;
+  /** Retry loading the Area/Goal options after a failure. */
+  readonly onRetryParentOptions?: () => void;
 }
 
 /**
- * The server-backed Area/Goal search: query the bounded parent-options endpoint,
- * aborting any in-flight request so a slower earlier response can't overwrite a
- * newer one. The seed options remain the shown set until (and unless) a search
- * returns a real options array, so an unrelated/failed response never empties the
- * control, and any previously-known option (including the current selection) is
- * retained so its label always resolves.
+ * Project creation discoverability (PROJ-05 §8): a Project must belong to an
+ * Area or advance a Goal (AGENTS.md §4 — parentage stays required; making it
+ * optional would need its own ADR). When the AUTHENTICATED parent query has
+ * actually succeeded and found neither, showing an empty, silently-unusable
+ * picker is a dead end (AGENTS.md §6). This is an HONEST explanation, not a
+ * fabricated fixture or a link to an unbuilt route: Areas/Goals (AREA-01/
+ * AREA-02) don't exist yet, so the only real action here is Close — it never
+ * auto-creates an Area/Goal and never makes the field optional.
  */
-function useParentSearch(seed: readonly SelectOption[]) {
-  const [options, setOptions] = useState<readonly SelectOption[]>(seed);
-  const [loading, setLoading] = useState(false);
-  const known = useRef<Map<string, SelectOption>>(
-    new Map(seed.map((option) => [option.value, option])),
+function NoEligibleParents({ onCancel }: { readonly onCancel: () => void }) {
+  return (
+    <div className="dh-project-empty-parents" role="status">
+      <p>
+        A project belongs to an Area, or advances a Goal — and this workspace
+        doesn&rsquo;t have either yet, so there&rsquo;s nowhere for a new
+        project to go.
+      </p>
+      <FormActions>
+        <FormButton type="button" variant="secondary" onClick={onCancel}>
+          Close
+        </FormButton>
+      </FormActions>
+    </div>
   );
-  const abort = useRef<AbortController | null>(null);
+}
 
-  const onSearch = useCallback((query: string) => {
-    abort.current?.abort();
-    const controller = new AbortController();
-    abort.current = controller;
-    setLoading(true);
-    void (async () => {
-      try {
-        const url = new URL("/projects/parent-options", window.location.origin);
-        url.searchParams.set("q", query);
-        const response = await fetch(url, {
-          signal: controller.signal,
-          headers: { accept: "application/json" },
-        });
-        if (!response.ok) {
-          setLoading(false);
-          return;
-        }
-        const body = (await response.json()) as {
-          readonly options?: readonly SelectOption[];
-        };
-        if (!Array.isArray(body.options)) {
-          setLoading(false);
-          return;
-        }
-        for (const option of body.options) {
-          known.current.set(option.value, option);
-        }
-        setOptions(body.options);
-        setLoading(false);
-      } catch (error) {
-        // An aborted request is expected when the user keeps typing — ignore it.
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setLoading(false);
-        }
-      }
-    })();
-  }, []);
-
-  /** Merge a value's known option into the shown set so its label always resolves. */
-  const withSelected = useCallback(
-    (value: string): readonly SelectOption[] => {
-      if (value.length === 0 || options.some((o) => o.value === value)) {
-        return options;
-      }
-      const selected = known.current.get(value);
-      return selected ? [selected, ...options] : options;
-    },
-    [options],
+/**
+ * The Area/Goal options failed to load (a storage/query failure, not a
+ * confirmed-empty workspace). Calm, retryable, and never disclosing the
+ * underlying cause.
+ */
+function ParentOptionsUnavailable({
+  onCancel,
+  onRetry,
+}: {
+  readonly onCancel: () => void;
+  readonly onRetry?: () => void;
+}) {
+  return (
+    <div className="dh-project-empty-parents" role="status">
+      <p>Couldn&rsquo;t load Areas and Goals.</p>
+      <p>Please try again.</p>
+      <FormActions>
+        <FormButton type="button" variant="secondary" onClick={onCancel}>
+          Close
+        </FormButton>
+        {onRetry ? (
+          <FormButton type="button" variant="primary" onClick={onRetry}>
+            Try again
+          </FormButton>
+        ) : null}
+      </FormActions>
+    </div>
   );
-
-  return { options, loading, onSearch, withSelected };
 }
 
 export function NewProjectForm({
   parentOptions,
+  parentOptionsFailed = false,
   onCreated,
   onCancel,
+  onRetryParentOptions,
 }: NewProjectFormProps) {
-  const parentSearch = useParentSearch(parentOptions);
+  const parentSearch = useParentOptionsSearch(parentOptions);
   const form = useForm<Values>({
     initialValues: { title: "", parentId: "" },
     fields: {
@@ -164,6 +162,27 @@ export function NewProjectForm({
 
   const titleField = form.field("title");
   const parentField = form.field("parentId");
+
+  // A load failure is NOT proof the workspace has no Areas or Goals — model it
+  // separately from a confirmed-empty result so a storage/query failure never
+  // shows the false "this workspace doesn't have either yet" domain message.
+  if (parentOptionsFailed) {
+    return (
+      <ParentOptionsUnavailable
+        onCancel={onCancel}
+        onRetry={onRetryParentOptions}
+      />
+    );
+  }
+
+  // No eligible Area/Goal exists at all (the seed page is the true, unfiltered
+  // count up to its bound, and the query genuinely succeeded) — show the honest
+  // explanation instead of a silently empty, unusable picker. `parentOptions` is
+  // never re-checked after a search: it always reflects "does at least one
+  // eligible parent exist", independent of whatever the user has typed.
+  if (parentOptions.length === 0) {
+    return <NoEligibleParents onCancel={onCancel} />;
+  }
 
   return (
     <Form

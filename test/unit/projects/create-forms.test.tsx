@@ -133,6 +133,67 @@ describe("NewProjectForm", () => {
       ).toBeGreaterThan(0),
     );
   });
+
+  describe("creation discoverability (PROJ-05 §8)", () => {
+    it("explains why a project can't be created when no Area/Goal exists, without an unusable picker or a link to an unbuilt route", () => {
+      const onCancel = vi.fn();
+      renderInRouter(
+        <NewProjectForm
+          parentOptions={[]}
+          onCreated={() => {}}
+          onCancel={onCancel}
+        />,
+      );
+      // No silently-empty, unusable picker — an honest explanation instead.
+      expect(
+        screen.queryByRole("combobox", { name: /Area or Goal/ }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText(/doesn.t have either yet/)).toBeInTheDocument();
+      // Areas/Goals (AREA-01/AREA-02) aren't built yet — never link to those
+      // unbuilt routes; the only real action is Close.
+      expect(screen.queryByRole("link")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+      expect(onCancel).toHaveBeenCalled();
+    });
+
+    it("keeps the picker usable when at least one Area/Goal exists", () => {
+      renderInRouter(
+        <NewProjectForm
+          parentOptions={parentOptions}
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      expect(
+        screen.getByRole("combobox", { name: /Area or Goal/ }),
+      ).toBeInTheDocument();
+    });
+
+    it("distinguishes a parent-options load failure from a confirmed-empty workspace", () => {
+      const onRetry = vi.fn();
+      renderInRouter(
+        <NewProjectForm
+          parentOptions={[]}
+          parentOptionsFailed
+          onRetryParentOptions={onRetry}
+          onCreated={() => {}}
+          onCancel={() => {}}
+        />,
+      );
+      // The load-failure message renders, NOT the confirmed-empty domain claim.
+      expect(
+        screen.getByText("Couldn’t load Areas and Goals."),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(/doesn.t have either yet/),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("combobox", { name: /Area or Goal/ }),
+      ).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      expect(onRetry).toHaveBeenCalledTimes(1);
+    });
+  });
 });
 
 describe("NewTaskForm", () => {

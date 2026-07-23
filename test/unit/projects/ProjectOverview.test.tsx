@@ -56,6 +56,7 @@ describe("ProjectOverview", () => {
         tasksTab={<div>tasks-content</div>}
         linksTab={<div>links-content</div>}
         activityTab={<div>activity-content</div>}
+        settingsTab={<div>settings-content</div>}
       />,
     );
     expect(
@@ -93,6 +94,7 @@ describe("ProjectOverview", () => {
         tasksTab={<div>tasks-content</div>}
         linksTab={<div>links-content</div>}
         activityTab={<div>activity-content</div>}
+        settingsTab={<div>settings-content</div>}
       />,
     );
     // The at-risk state pill (appears in header + panel).
@@ -116,6 +118,7 @@ describe("ProjectOverview", () => {
         tasksTab={<div>tasks-content</div>}
         linksTab={<div>links-content</div>}
         activityTab={<div>activity-content</div>}
+        settingsTab={<div>settings-content</div>}
       />,
     );
     expect(
@@ -137,6 +140,7 @@ describe("ProjectOverview", () => {
         tasksTab={<div>tasks-content</div>}
         linksTab={<div>links-content</div>}
         activityTab={<div>activity-content</div>}
+        settingsTab={<div>settings-content</div>}
       />,
     );
     expect(screen.getAllByText(/No tasks yet/).length).toBeGreaterThan(0);
@@ -157,14 +161,16 @@ describe("ProjectOverview", () => {
         tasksTab={<div>tasks-content</div>}
         linksTab={<div>links-content</div>}
         activityTab={<div>activity-content</div>}
+        settingsTab={<div>settings-content</div>}
       />,
     );
-    // Tab order follows the shared vocabulary: Tasks, Key links, then Activity
-    // LAST (Activity/Settings always sit last — DESIGN_SYSTEM.md → Tabs).
+    // Tab order follows the shared vocabulary: Tasks, Key links, Activity, then
+    // Settings LAST (PROJ-05 §1 — Settings always sits last — DESIGN_SYSTEM.md →
+    // Tabs).
     const tabNames = screen
       .getAllByRole("tab")
       .map((tab) => tab.textContent?.trim());
-    expect(tabNames).toEqual(["Tasks", "Key links", "Activity"]);
+    expect(tabNames).toEqual(["Tasks", "Key links", "Activity", "Settings"]);
 
     expect(screen.getByRole("tab", { name: "Tasks" })).toBeInTheDocument();
     const linksTab = screen.getByRole("tab", { name: "Key links" });
@@ -175,6 +181,10 @@ describe("ProjectOverview", () => {
     // selected, exactly like the other record tabs.
     fireEvent.click(screen.getByRole("tab", { name: "Activity" }));
     expect(screen.getByText("activity-content")).toBeInTheDocument();
+
+    // The Settings tab lazily renders its content too.
+    fireEvent.click(screen.getByRole("tab", { name: "Settings" }));
+    expect(screen.getByText("settings-content")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Complete project" }));
     expect(onToggleComplete).toHaveBeenCalledWith(true);
@@ -196,6 +206,7 @@ describe("ProjectOverview", () => {
           tasksTab={<div>tasks-content</div>}
           linksTab={<div>links-content</div>}
           activityTab={<div>activity-content</div>}
+          settingsTab={<div>settings-content</div>}
         />,
       );
       expect(screen.getByText("Health")).toBeInTheDocument();
@@ -242,6 +253,7 @@ describe("ProjectOverview", () => {
             tasksTab={<div>tasks-content</div>}
             linksTab={<div>links-content</div>}
             activityTab={<div>activity-content</div>}
+            settingsTab={<div>settings-content</div>}
           />,
         );
         expect(screen.queryByText("Health")).not.toBeInTheDocument();
@@ -251,5 +263,81 @@ describe("ProjectOverview", () => {
         ).not.toBeInTheDocument();
       },
     );
+  });
+
+  describe("archived read-only rendering (PROJ-05 §5)", () => {
+    it("hides Complete/Reopen and Rename, and shows a calm read-only banner", () => {
+      renderInRouter(
+        <ProjectOverview
+          overview={overview({
+            archivedAt: "2026-07-21T00:00:00.000Z",
+            healthVisible: false,
+          })}
+          progress={projectProgress(1, 4)}
+          health={stubHealth({ taskTotal: 4, taskCompleted: 1 })}
+          completed={false}
+          completionPending={false}
+          onToggleComplete={() => {}}
+          onRename={() => {}}
+          tasksTab={<div>tasks-content</div>}
+          linksTab={<div>links-content</div>}
+          activityTab={<div>activity-content</div>}
+          settingsTab={<div>settings-content</div>}
+        />,
+      );
+      // Hidden (not merely disabled) — an archived project's own mutation route
+      // rejects both, and the repository never leaves this to a disabled control.
+      expect(
+        screen.queryByRole("button", { name: "Complete project" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Reopen project" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Rename" }),
+      ).not.toBeInTheDocument();
+      // The Archived state pill and a calm explanation — never colour-only.
+      expect(screen.getAllByText("Archived").length).toBeGreaterThan(0);
+      expect(screen.getByText(/archived and read-only/)).toBeInTheDocument();
+      // Settings is still reachable and remains the final tab.
+      const tabNames = screen
+        .getAllByRole("tab")
+        .map((tab) => tab.textContent?.trim());
+      expect(tabNames).toEqual(["Tasks", "Key links", "Activity", "Settings"]);
+    });
+
+    it("hides Complete/Reopen and Rename for an archived project that was also completed", () => {
+      // Archived AND completed can co-occur (archiving only checks unfinished
+      // Tasks, never completion state) — the archived read-only rule wins
+      // regardless (PROJ-05 §5), so neither mutation control renders.
+      renderInRouter(
+        <ProjectOverview
+          overview={overview({
+            completedAt: "2026-07-20T00:00:00.000Z",
+            archivedAt: "2026-07-21T00:00:00.000Z",
+            healthVisible: false,
+          })}
+          progress={projectProgress(4, 4)}
+          health={stubHealth({ taskTotal: 4, taskCompleted: 4 })}
+          completed
+          completionPending={false}
+          onToggleComplete={() => {}}
+          onRename={() => {}}
+          tasksTab={<div>tasks-content</div>}
+          linksTab={<div>links-content</div>}
+          activityTab={<div>activity-content</div>}
+          settingsTab={<div>settings-content</div>}
+        />,
+      );
+      expect(
+        screen.queryByRole("button", { name: "Complete project" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Reopen project" }),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole("button", { name: "Rename" }),
+      ).not.toBeInTheDocument();
+    });
   });
 });

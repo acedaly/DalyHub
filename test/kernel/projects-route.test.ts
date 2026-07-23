@@ -354,6 +354,373 @@ describe("POST /projects/:projectId/mutate", () => {
   });
 });
 
+/**
+ * PROJ-05 Slice 3 — the settings intents (`set_status`/`move`/`archive`/
+ * `restore`) at the ACTUAL route boundary. The repository-level atomicity,
+ * concurrency and archive-guard invariants are already proven in
+ * `project-settings.test.ts` / `project-archive-guard.test.ts`; these tests
+ * prove the ROUTE dispatches them correctly, revalidates honestly (via the
+ * next `runDetail`), and gates EVERY other intent against an archived project.
+ */
+describe("POST /projects/:projectId/mutate — PROJ-05 settings intents", () => {
+  async function seedProject(ws: string): Promise<{
+    projectId: string;
+    areaId: string;
+    goalId: string;
+  }> {
+    const { area, goal } = await seedParents(ws);
+    const project = await spine(ws).createProject({
+      title: "Settings subject",
+      parent: { kind: "area", id: area },
+    });
+    return { projectId: project.id, areaId: area, goalId: goal };
+  }
+
+  describe("set_status", () => {
+    it("changes the workflow status and reflects it on the next loader", async () => {
+      const { projectId } = await seedProject(WS);
+      const body = (await (
+        await runMutate(
+          projectId,
+          formData({ intent: "set_status", status: "active" }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({
+        kind: "settings",
+        ok: true,
+        outcome: "changed",
+      });
+      const detail = await runDetail(projectId);
+      if ("overview" in detail) {
+        expect(detail.overview.status).toBe("active");
+      }
+    });
+
+    it("is a no-op that reports 'unchanged' when the status already holds", async () => {
+      const { projectId } = await seedProject(WS);
+      await runMutate(
+        projectId,
+        formData({ intent: "set_status", status: "active" }),
+      );
+      const body = (await (
+        await runMutate(
+          projectId,
+          formData({ intent: "set_status", status: "active" }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ outcome: "unchanged" });
+    });
+
+    it("rejects an invalid status value calmly", async () => {
+      const { projectId } = await seedProject(WS);
+      const body = (await (
+        await runMutate(
+          projectId,
+          formData({ intent: "set_status", status: "bogus" }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({
+        kind: "settings",
+        ok: false,
+        outcome: "invalid",
+      });
+    });
+  });
+
+  describe("move", () => {
+    it("moves a project from its Area to its Goal", async () => {
+      const { projectId, goalId } = await seedProject(WS);
+      const body = (await (
+        await runMutate(
+          projectId,
+          formData({ intent: "move", parentId: goalId }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ outcome: "moved" });
+      const detail = await runDetail(projectId);
+      if ("overview" in detail) {
+        expect(detail.overview.goal?.id).toBe(goalId);
+      }
+    });
+
+    it("moves a project from a Goal back to a plain Area", async () => {
+      const { area, goal } = await seedParents(WS);
+      const project = await spine(WS).createProject({
+        title: "Goal-parented",
+        parent: { kind: "goal", id: goal },
+      });
+      const body = (await (
+        await runMutate(
+          project.id,
+          formData({ intent: "move", parentId: area }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ outcome: "moved" });
+      const detail = await runDetail(project.id);
+      if ("overview" in detail) {
+        expect(detail.overview.area?.id).toBe(area);
+        expect(detail.overview.goal).toBeNull();
+      }
+    });
+
+    it("moves between two Areas", async () => {
+      const { projectId } = await seedProject(WS);
+      const otherArea = (await spine(WS).createArea({ title: "Home" })).id;
+      const body = (await (
+        await runMutate(
+          projectId,
+          formData({ intent: "move", parentId: otherArea }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ outcome: "moved" });
+      const detail = await runDetail(projectId);
+      if ("overview" in detail) {
+        expect(detail.overview.area?.id).toBe(otherArea);
+      }
+    });
+
+    it("resolves a project's Area live through its Goal (never a copied title)", async () => {
+      const { area, goal } = await seedParents(WS);
+      const project = await spine(WS).createProject({
+        title: "Via goal",
+        parent: { kind: "goal", id: goal },
+      });
+      const detail = await runDetail(project.id);
+      if ("overview" in detail) {
+        expect(detail.overview.area?.id).toBe(area);
+        expect(detail.overview.goal?.id).toBe(goal);
+      }
+    });
+
+    it("selecting the current parent is a no-op (unchanged, no Activity churn)", async () => {
+      const { projectId, areaId } = await seedProject(WS);
+      const body = (await (
+        await runMutate(
+          projectId,
+          formData({ intent: "move", parentId: areaId }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ outcome: "unchanged" });
+    });
+
+    it("rejects a wrong-kind parent (a Task or Project id)", async () => {
+      const { projectId } = await seedProject(WS);
+      const other = await seedProject(WS);
+      const body = (await (
+        await runMutate(
+          projectId,
+          formData({ intent: "move", parentId: other.projectId }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ ok: false, outcome: "invalid" });
+    });
+
+    it("rejects a missing/deleted or cross-workspace parent", async () => {
+      const { projectId } = await seedProject(WS);
+      let body = (await (
+        await runMutate(
+          projectId,
+          formData({ intent: "move", parentId: "nope" }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ ok: false, outcome: "invalid" });
+
+      const s = spine(WS);
+      const deletedArea = (await s.createArea({ title: "Gone soon" })).id;
+      await s.softDelete(deletedArea);
+      body = (await (
+        await runMutate(
+          projectId,
+          formData({ intent: "move", parentId: deletedArea }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ ok: false, outcome: "invalid" });
+
+      const { area: otherArea } = await seedParents(OTHER);
+      body = (await (
+        await runMutate(
+          projectId,
+          formData({ intent: "move", parentId: otherArea }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ ok: false, outcome: "invalid" });
+    });
+  });
+
+  describe("archive / restore", () => {
+    it("archives an eligible project and the collection/record reflect it", async () => {
+      const { projectId } = await seedProject(WS);
+      const body = (await (
+        await runMutate(projectId, formData({ intent: "archive" }))
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ outcome: "archived" });
+
+      const detail = await runDetail(projectId);
+      if ("overview" in detail) {
+        expect(detail.overview.archivedAt).not.toBeNull();
+      }
+      const archivedList = await runIndex("archived");
+      expect(archivedList.projects.map((p) => p.id)).toContain(projectId);
+      const openList = await runIndex("open");
+      expect(openList.projects.map((p) => p.id)).not.toContain(projectId);
+      const allList = await runIndex("all");
+      expect(allList.projects.map((p) => p.id)).not.toContain(projectId);
+    });
+
+    it("blocks archiving while an unfinished direct Task exists, mutating nothing", async () => {
+      const { projectId } = await seedProject(WS);
+      await runMutate(
+        projectId,
+        formData({ intent: "create_task", title: "Unfinished" }),
+      );
+      const before = await runDetail(projectId);
+
+      const body = (await (
+        await runMutate(projectId, formData({ intent: "archive" }))
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({
+        kind: "settings",
+        ok: false,
+        outcome: "blocked",
+        message:
+          "Complete or move the unfinished tasks before archiving this project.",
+      });
+
+      // Never claims archived; settings/updatedAt unchanged.
+      const after = await runDetail(projectId);
+      if ("overview" in before && "overview" in after) {
+        expect(after.overview.archivedAt).toBeNull();
+        expect(after.overview.updatedAt).toBe(before.overview.updatedAt);
+      }
+    });
+
+    it("archiving is unblocked once the unfinished Task is completed or moved away", async () => {
+      const { projectId } = await seedProject(WS);
+      const createBody = (await (
+        await runMutate(
+          projectId,
+          formData({ intent: "create_task", title: "Will complete" }),
+        )
+      ).json()) as ProjectMutationResult;
+      expect(createBody.kind).toBe("create_task");
+      const taskId =
+        createBody.kind === "create_task" && createBody.ok
+          ? createBody.taskId
+          : "";
+      await makeTaskRepository(makeContext(WS)).completeTask(taskId);
+
+      const body = (await (
+        await runMutate(projectId, formData({ intent: "archive" }))
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ outcome: "archived" });
+    });
+
+    it("repeated archive is a harmless no-op", async () => {
+      const { projectId } = await seedProject(WS);
+      await runMutate(projectId, formData({ intent: "archive" }));
+      const body = (await (
+        await runMutate(projectId, formData({ intent: "archive" }))
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ ok: true, outcome: "unchanged" });
+    });
+
+    it("restores an archived project via the restore intent", async () => {
+      const { projectId } = await seedProject(WS);
+      await runMutate(projectId, formData({ intent: "archive" }));
+      const body = (await (
+        await runMutate(projectId, formData({ intent: "restore" }))
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ outcome: "restored" });
+      const detail = await runDetail(projectId);
+      if ("overview" in detail) {
+        expect(detail.overview.archivedAt).toBeNull();
+      }
+    });
+
+    it("preserves the workflow status across archive → restore", async () => {
+      const { projectId } = await seedProject(WS);
+      await runMutate(
+        projectId,
+        formData({ intent: "set_status", status: "on_hold" }),
+      );
+      await runMutate(projectId, formData({ intent: "archive" }));
+      await runMutate(projectId, formData({ intent: "restore" }));
+      const detail = await runDetail(projectId);
+      if ("overview" in detail) {
+        expect(detail.overview.status).toBe("on_hold");
+        expect(detail.overview.archivedAt).toBeNull();
+      }
+    });
+
+    it("repeated restore (or restoring a never-archived project) is a harmless no-op", async () => {
+      const { projectId } = await seedProject(WS);
+      const body = (await (
+        await runMutate(projectId, formData({ intent: "restore" }))
+      ).json()) as ProjectMutationResult;
+      expect(body).toMatchObject({ ok: true, outcome: "unchanged" });
+    });
+
+    it("rejects EVERY non-restore intent against an archived project, calmly", async () => {
+      const { projectId, areaId, goalId } = await seedProject(WS);
+      await runMutate(projectId, formData({ intent: "archive" }));
+
+      const rejected = async (
+        entries: Record<string, string>,
+      ): Promise<ProjectMutationResult> =>
+        (await runMutate(projectId, formData(entries)).then((r) =>
+          r.json(),
+        )) as ProjectMutationResult;
+
+      expect(
+        await rejected({ intent: "rename", title: "New name" }),
+      ).toMatchObject({
+        kind: "settings",
+        ok: false,
+        outcome: "archived_rejected",
+      });
+      expect(await rejected({ intent: "complete" })).toMatchObject({
+        outcome: "archived_rejected",
+      });
+      expect(
+        await rejected({ intent: "create_task", title: "Nope" }),
+      ).toMatchObject({ outcome: "archived_rejected" });
+      expect(
+        await rejected({ intent: "set_status", status: "active" }),
+      ).toMatchObject({ outcome: "archived_rejected" });
+      expect(
+        await rejected({ intent: "move", parentId: goalId }),
+      ).toMatchObject({ outcome: "archived_rejected" });
+      expect(await rejected({ intent: "unlink", linkId: "x" })).toMatchObject({
+        outcome: "archived_rejected",
+      });
+
+      // The project itself is untouched throughout.
+      const detail = await runDetail(projectId);
+      if ("overview" in detail) {
+        expect(detail.overview.title).toBe("Settings subject");
+        expect(detail.overview.status).toBe("planned");
+      }
+      void areaId;
+    });
+
+    it("archive itself 404s for a wrong-kind or cross-workspace id", async () => {
+      const { area } = await seedParents(WS);
+      await expect(
+        runMutate(area, formData({ intent: "archive" })),
+      ).rejects.toMatchObject({ status: 404 });
+
+      const { area: otherArea } = await seedParents(OTHER);
+      const otherProject = await spine(OTHER).createProject({
+        title: "Hidden",
+        parent: { kind: "area", id: otherArea },
+      });
+      await expect(
+        runMutate(otherProject.id, formData({ intent: "archive" })),
+      ).rejects.toMatchObject({ status: 404 });
+    });
+  });
+});
+
 describe("project loaders", () => {
   it("the collection lists projects and offers Area/Goal parent options", async () => {
     const { area } = await seedParents(WS);
@@ -477,6 +844,107 @@ describe("project loaders", () => {
     expect(new Set(walked)).toEqual(new Set(created));
     expect(walked).toHaveLength(55);
     expect(new Set(walked).size).toBe(55);
+  });
+
+  describe("the 'archived' collection state (PROJ-05 §7)", () => {
+    it("separates archived projects from open/completed/all", async () => {
+      const { area } = await seedParents(WS);
+      const s = spine(WS);
+      const open = await s.createProject({
+        title: "Open",
+        parent: { kind: "area", id: area },
+      });
+      const done = await s.createProject({
+        title: "Done",
+        parent: { kind: "area", id: area },
+      });
+      await s.complete(done.id);
+      const archived = await s.createProject({
+        title: "Archived",
+        parent: { kind: "area", id: area },
+      });
+      await runMutate(archived.id, formData({ intent: "archive" }));
+
+      expect((await runIndex("open")).projects.map((p) => p.id)).toEqual([
+        open.id,
+      ]);
+      expect((await runIndex("completed")).projects.map((p) => p.id)).toEqual([
+        done.id,
+      ]);
+      expect((await runIndex("archived")).projects.map((p) => p.id)).toEqual([
+        archived.id,
+      ]);
+      // "all" keeps its existing, exact meaning (every non-archived project) —
+      // the archived project never leaks into it.
+      const all = (await runIndex("all")).projects.map((p) => p.id);
+      expect(all).toEqual(expect.arrayContaining([open.id, done.id]));
+      expect(all).not.toContain(archived.id);
+    });
+
+    it("keyset-paginates the Archived collection with scope-bound cursors", async () => {
+      const { area } = await seedParents(WS);
+      const s = spine(WS);
+      const archivedIds: string[] = [];
+      for (let i = 0; i < 12; i += 1) {
+        const p = await s.createProject({
+          title: `Sunset ${i}`,
+          parent: { kind: "area", id: area },
+        });
+        await runMutate(p.id, formData({ intent: "archive" }));
+        archivedIds.push(p.id);
+      }
+
+      const walked: string[] = [];
+      let cursor: string | undefined;
+      let pages = 0;
+      do {
+        // A small page size to force multiple pages over only 12 rows.
+        const page = await indexLoader({
+          request: new Request(
+            `https://app.test/projects?state=archived${cursor ? `&cursor=${cursor}` : ""}`,
+          ),
+          context: authedContext(),
+          params: {},
+        } as unknown as Parameters<typeof indexLoader>[0]);
+        walked.push(...page.projects.map((p) => p.id));
+        cursor = page.nextCursor ?? undefined;
+        pages += 1;
+        expect(pages).toBeLessThan(20);
+      } while (cursor);
+      expect(new Set(walked)).toEqual(new Set(archivedIds));
+
+      // A cursor issued for a different state is rejected, never reinterpreted
+      // — the archived page loads cleanly instead of leaking an open-state page.
+      const archivedFirstPage = await runIndex("archived");
+      if (archivedFirstPage.nextCursor) {
+        const openWithArchivedCursor = await runIndex(
+          "open",
+          archivedFirstPage.nextCursor,
+        );
+        // A rejected cursor degrades to the calm "failed" loader shape, never a
+        // 500 and never a silently-reinterpreted page of the wrong scope.
+        expect(openWithArchivedCursor.failed).toBe(true);
+      }
+    });
+
+    it("never surfaces a wrong-kind, deleted or cross-workspace project", async () => {
+      const { area } = await seedParents(WS);
+      const s = spine(WS);
+      await s.createArea({ title: "Not a project" });
+      const deletedProject = await s.createProject({
+        title: "Deleted",
+        parent: { kind: "area", id: area },
+      });
+      await s.softDelete(deletedProject.id);
+      const { area: otherArea } = await seedParents(OTHER);
+      await spine(OTHER).createProject({
+        title: "Other workspace",
+        parent: { kind: "area", id: otherArea },
+      });
+
+      const archived = await runIndex("archived");
+      expect(archived.projects).toHaveLength(0);
+    });
   });
 });
 

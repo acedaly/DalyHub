@@ -10,7 +10,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useFetcher, useNavigate } from "react-router";
+import { useFetcher, useNavigate, useRevalidator } from "react-router";
 
 import { Card, CardCollection } from "~/shared/card";
 import type { CardMetaItem, CardProps } from "~/shared/card";
@@ -36,15 +36,23 @@ import {
   type SerializedProjectListItem,
 } from "./project-view";
 
-export type ProjectState = "open" | "completed" | "all";
+export type ProjectState = "open" | "completed" | "archived" | "all";
 
 /** The drawer key hosting the create form. */
 const NEW_PROJECT_KEY = "new-project";
 
+/**
+ * PROJ-05 §7: "All" keeps its existing, exact meaning (every non-archived
+ * project — open or completed); Archived is a SEPARATE, dedicated segment so
+ * archived Projects never leak into Open/Completed/All. This matches the
+ * repository's documented `ProjectStateFilter` semantics exactly
+ * (`d1-project-repository.ts`) — the UI never redefines them.
+ */
 const STATE_OPTIONS = [
   { value: "all", label: "All" },
   { value: "open", label: "Open" },
   { value: "completed", label: "Completed" },
+  { value: "archived", label: "Archived" },
 ] as const;
 
 export interface ProjectsCollectionViewProps {
@@ -52,6 +60,12 @@ export interface ProjectsCollectionViewProps {
   /** Opaque cursor for the next page from the loader, or null when exhausted. */
   readonly nextCursor: string | null;
   readonly parentOptions: readonly SelectOption[];
+  /**
+   * True when the create form's Area/Goal options failed to load — a distinct
+   * failure domain from the project list itself, and from a confirmed-empty
+   * workspace (an empty `parentOptions` array with this false).
+   */
+  readonly parentOptionsFailed?: boolean;
   readonly state: ProjectState;
   readonly failed: boolean;
 }
@@ -70,10 +84,12 @@ export function ProjectsCollectionView({
   projects,
   nextCursor,
   parentOptions,
+  parentOptionsFailed = false,
   state,
   failed,
 }: ProjectsCollectionViewProps) {
   const navigate = useNavigate();
+  const revalidator = useRevalidator();
 
   const renderDrawer = useMemo(() => {
     return function render(entry: DrawerEntry): DrawerRenderResult | null {
@@ -83,10 +99,16 @@ export function ProjectsCollectionView({
       return {
         title: "New project",
         description: "Create a project under an Area or a Goal.",
-        children: <NewProjectFormHost parentOptions={parentOptions} />,
+        children: (
+          <NewProjectFormHost
+            parentOptions={parentOptions}
+            parentOptionsFailed={parentOptionsFailed}
+            onRetryParentOptions={() => revalidator.revalidate()}
+          />
+        ),
       };
     };
-  }, [parentOptions]);
+  }, [parentOptions, parentOptionsFailed, revalidator]);
 
   return (
     <DrawerProvider renderDrawer={renderDrawer}>
@@ -104,14 +126,20 @@ export function ProjectsCollectionView({
 /** The create-form host: closes the Drawer and navigates to the new project. */
 function NewProjectFormHost({
   parentOptions,
+  parentOptionsFailed,
+  onRetryParentOptions,
 }: {
   readonly parentOptions: readonly SelectOption[];
+  readonly parentOptionsFailed: boolean;
+  readonly onRetryParentOptions: () => void;
 }) {
   const navigate = useNavigate();
   const { closeDrawer } = useDrawer();
   return (
     <NewProjectForm
       parentOptions={parentOptions}
+      parentOptionsFailed={parentOptionsFailed}
+      onRetryParentOptions={onRetryParentOptions}
       onCreated={(projectId) =>
         navigate(`/projects/${encodeURIComponent(projectId)}`)
       }
@@ -327,16 +355,26 @@ function ProjectsCollection({
         <EmptyState
           icon={<EntityIcon type="project" />}
           title={
-            state === "completed" ? "No completed projects" : "No open projects"
+            state === "completed"
+              ? "No completed projects"
+              : state === "archived"
+                ? "No archived projects"
+                : "No open projects"
           }
-          description="Try a different state, or create a project."
+          description={
+            state === "archived"
+              ? "Projects you archive appear here, and can be restored at any time."
+              : "Try a different state, or create a project."
+          }
           primaryAction={
-            <DrawerTrigger
-              drawerKey={NEW_PROJECT_KEY}
-              className="dh-btn dh-btn--primary"
-            >
-              New project
-            </DrawerTrigger>
+            state === "archived" ? undefined : (
+              <DrawerTrigger
+                drawerKey={NEW_PROJECT_KEY}
+                className="dh-btn dh-btn--primary"
+              >
+                New project
+              </DrawerTrigger>
+            )
           }
         />
       }
