@@ -39,7 +39,6 @@ import {
 import { EntityIcon } from "~/shared/entity";
 import { EmptyState } from "~/shared/empty-state";
 import { useFeedback } from "~/shared/feedback";
-import type { SelectOption } from "~/shared/forms/types";
 import type {
   EntityLinkSelection,
   EntityLinkTargetOption,
@@ -65,10 +64,6 @@ import {
 } from "../project-view";
 import type { ProjectMutationResult } from "./mutate";
 import type { Route } from "./+types/detail";
-
-/** Bounded page size for the parent (Area/Goal) options seeding the Settings
- * tab's organisation picker — mirrors the collection loader's create-form seed. */
-const PARENT_OPTIONS_LIMIT = 100;
 
 const RENAME_KEY = "rename";
 type TaskState = "open" | "completed" | "all";
@@ -132,7 +127,13 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     healthContext,
   );
 
-  const [taskPage, links, areas, goals] = await Promise.all([
+  // The Settings tab's "Area or Goal" picker seeds from the CURRENT parent
+  // alone (already present on `overview`) — it never fetches the whole
+  // Area/Goal catalogue. Every other eligible parent is discovered through the
+  // existing `/projects/parent-options?q=` search, so this loader (and every
+  // ordinary revalidation of it — a task edit, a completion, a settings
+  // change) stays independent of how many Areas/Goals the workspace has.
+  const [taskPage, links] = await Promise.all([
     scope.tasks.listProjectTasks(projectId, { state: taskState }),
     listActiveLinks(
       { entities: scope.entities, entityLinks: scope.entityLinks },
@@ -142,23 +143,7 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
         linkTypes: [PROJECT_RELATES_TO],
       },
     ),
-    // The Settings tab's "Area or Goal" picker seed (PROJ-05 §2) — the SAME
-    // bounded, workspace-scoped query the collection's create-form seed uses.
-    scope.entities.list({ type: "area", limit: PARENT_OPTIONS_LIMIT }),
-    scope.entities.list({ type: "goal", limit: PARENT_OPTIONS_LIMIT }),
   ]);
-  const parentOptions: SelectOption[] = [
-    ...areas.items.map((a) => ({
-      value: a.id,
-      label: a.title,
-      description: "Area",
-    })),
-    ...goals.items.map((g) => ({
-      value: g.id,
-      label: g.title,
-      description: "Goal",
-    })),
-  ];
 
   return {
     overview: serializeProjectOverview(overview),
@@ -168,7 +153,6 @@ export async function loader({ request, params, context }: Route.LoaderArgs) {
     tasksNextCursor: taskPage.nextCursor,
     taskState,
     links,
-    parentOptions,
     todayIso,
   };
 }
@@ -184,7 +168,6 @@ export default function ProjectDetailRoute({
     tasksNextCursor,
     taskState,
     links,
-    parentOptions,
     todayIso,
   } = loaderData;
 
@@ -203,7 +186,6 @@ export default function ProjectDetailRoute({
         tasksNextCursor={tasksNextCursor}
         taskState={taskState}
         links={links}
-        parentOptions={parentOptions}
         todayIso={todayIso}
       />
     </DrawerProvider>
@@ -327,7 +309,6 @@ function ProjectDetail({
   tasksNextCursor,
   taskState,
   links,
-  parentOptions,
   todayIso,
 }: {
   readonly overview: SerializedProjectOverview;
@@ -337,7 +318,6 @@ function ProjectDetail({
   readonly tasksNextCursor: string | null;
   readonly taskState: TaskState;
   readonly links: readonly EntityLinkSelection[];
-  readonly parentOptions: readonly SelectOption[];
   readonly todayIso: string;
 }) {
   const revalidator = useRevalidator();
@@ -620,7 +600,6 @@ function ProjectDetail({
         // tab (DESIGN_SYSTEM.md → Tabs).
         <ProjectSettingsTab
           overview={overview}
-          parentOptions={parentOptions}
           onSetStatus={onSetStatus}
           onMove={onMove}
           onArchive={onArchive}

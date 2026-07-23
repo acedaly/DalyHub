@@ -53,10 +53,6 @@ function renderTab(
     <FeedbackProvider>
       <ProjectSettingsTab
         overview={overview()}
-        parentOptions={[
-          { value: "a1", label: "Career", description: "Area" },
-          { value: "g1", label: "Ship v2", description: "Goal" },
-        ]}
         onSetStatus={noop}
         onMove={noop}
         onArchive={noop}

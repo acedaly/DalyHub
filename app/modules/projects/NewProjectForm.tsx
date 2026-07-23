@@ -43,20 +43,30 @@ const FIELD_LABELS: Record<string, string> = {
 interface NewProjectFormProps {
   /** The seed Area/Goal parent options (value = entity id; description = kind). */
   readonly parentOptions: readonly SelectOption[];
+  /**
+   * True when the workspace's Area/Goal options could not be loaded (a
+   * storage/query failure) — distinct from a genuinely empty workspace. An
+   * empty `parentOptions` array alone is never enough to claim "no Areas or
+   * Goals exist"; that claim requires the load to have actually succeeded.
+   */
+  readonly parentOptionsFailed?: boolean;
   /** Called with the new project's id after a successful create. */
   readonly onCreated: (projectId: string) => void;
   /** Called when the user cancels. */
   readonly onCancel: () => void;
+  /** Retry loading the Area/Goal options after a failure. */
+  readonly onRetryParentOptions?: () => void;
 }
 
 /**
  * Project creation discoverability (PROJ-05 §8): a Project must belong to an
  * Area or advance a Goal (AGENTS.md §4 — parentage stays required; making it
- * optional would need its own ADR). When the workspace has NEITHER yet, showing
- * an empty, silently-unusable picker is a dead end (AGENTS.md §6). This is an
- * HONEST explanation, not a fabricated fixture: it names the real reason and
- * offers real, existing in-app destinations (the Areas/Goals module routes) —
- * it never auto-creates an Area/Goal and never makes the field optional.
+ * optional would need its own ADR). When the AUTHENTICATED parent query has
+ * actually succeeded and found neither, showing an empty, silently-unusable
+ * picker is a dead end (AGENTS.md §6). This is an HONEST explanation, not a
+ * fabricated fixture or a link to an unbuilt route: Areas/Goals (AREA-01/
+ * AREA-02) don't exist yet, so the only real action here is Close — it never
+ * auto-creates an Area/Goal and never makes the field optional.
  */
 function NoEligibleParents({ onCancel }: { readonly onCancel: () => void }) {
   return (
@@ -66,15 +76,6 @@ function NoEligibleParents({ onCancel }: { readonly onCancel: () => void }) {
         doesn&rsquo;t have either yet, so there&rsquo;s nowhere for a new
         project to go.
       </p>
-      <p>Add an Area or a Goal first, then come back to create your project.</p>
-      <div className="dh-project-empty-parents__actions">
-        <a className="dh-btn dh-btn--secondary" href="/areas">
-          Go to Areas
-        </a>
-        <a className="dh-btn dh-btn--secondary" href="/goals">
-          Go to Goals
-        </a>
-      </div>
       <FormActions>
         <FormButton type="button" variant="secondary" onClick={onCancel}>
           Close
@@ -84,10 +85,42 @@ function NoEligibleParents({ onCancel }: { readonly onCancel: () => void }) {
   );
 }
 
+/**
+ * The Area/Goal options failed to load (a storage/query failure, not a
+ * confirmed-empty workspace). Calm, retryable, and never disclosing the
+ * underlying cause.
+ */
+function ParentOptionsUnavailable({
+  onCancel,
+  onRetry,
+}: {
+  readonly onCancel: () => void;
+  readonly onRetry?: () => void;
+}) {
+  return (
+    <div className="dh-project-empty-parents" role="status">
+      <p>Couldn&rsquo;t load Areas and Goals.</p>
+      <p>Please try again.</p>
+      <FormActions>
+        <FormButton type="button" variant="secondary" onClick={onCancel}>
+          Close
+        </FormButton>
+        {onRetry ? (
+          <FormButton type="button" variant="primary" onClick={onRetry}>
+            Try again
+          </FormButton>
+        ) : null}
+      </FormActions>
+    </div>
+  );
+}
+
 export function NewProjectForm({
   parentOptions,
+  parentOptionsFailed = false,
   onCreated,
   onCancel,
+  onRetryParentOptions,
 }: NewProjectFormProps) {
   const parentSearch = useParentOptionsSearch(parentOptions);
   const form = useForm<Values>({
@@ -130,11 +163,23 @@ export function NewProjectForm({
   const titleField = form.field("title");
   const parentField = form.field("parentId");
 
+  // A load failure is NOT proof the workspace has no Areas or Goals — model it
+  // separately from a confirmed-empty result so a storage/query failure never
+  // shows the false "this workspace doesn't have either yet" domain message.
+  if (parentOptionsFailed) {
+    return (
+      <ParentOptionsUnavailable
+        onCancel={onCancel}
+        onRetry={onRetryParentOptions}
+      />
+    );
+  }
+
   // No eligible Area/Goal exists at all (the seed page is the true, unfiltered
-  // count up to its bound) — show the honest explanation instead of a silently
-  // empty, unusable picker. `parentOptions` is never re-checked after a search:
-  // it always reflects "does at least one eligible parent exist", independent of
-  // whatever the user has typed.
+  // count up to its bound, and the query genuinely succeeded) — show the honest
+  // explanation instead of a silently empty, unusable picker. `parentOptions` is
+  // never re-checked after a search: it always reflects "does at least one
+  // eligible parent exist", independent of whatever the user has typed.
   if (parentOptions.length === 0) {
     return <NoEligibleParents onCancel={onCancel} />;
   }

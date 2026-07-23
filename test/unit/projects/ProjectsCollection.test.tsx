@@ -24,6 +24,7 @@ type LoaderData = {
   projects: readonly SerializedProjectListItem[];
   nextCursor: string | null;
   parentOptions: readonly { value: string; label: string }[];
+  parentOptionsFailed?: boolean;
   state: "open" | "completed" | "archived" | "all";
   failed: boolean;
 };
@@ -63,6 +64,7 @@ function renderCollection(
             projects={data.projects}
             nextCursor={data.nextCursor}
             parentOptions={data.parentOptions as never}
+            parentOptionsFailed={data.parentOptionsFailed}
             state={data.state}
             failed={data.failed}
           />
@@ -266,6 +268,28 @@ describe("Projects collection", () => {
     });
     const link = screen.getByRole("link", { name: "Open DalyHub V2" });
     expect(link).toHaveAttribute("href", "/projects/p1");
+  });
+
+  it("distinguishes a parent-options load failure from a confirmed-empty workspace in the create form", () => {
+    renderCollection({
+      projects: [project()],
+      nextCursor: null,
+      parentOptions: [],
+      parentOptionsFailed: true,
+      state: "all",
+      failed: false,
+    });
+
+    fireEvent.click(screen.getAllByText("New project")[0]!);
+
+    // The load-failure message renders, never the false "no Areas or Goals
+    // exist" domain claim a generic empty-array fallback would otherwise show.
+    expect(
+      screen.getByText("Couldn’t load Areas and Goals."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/doesn.t have either yet/),
+    ).not.toBeInTheDocument();
   });
 
   it("does not claim a total, then appends the next keyset page without duplicates", async () => {

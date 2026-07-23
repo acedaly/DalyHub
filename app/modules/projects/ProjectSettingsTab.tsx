@@ -10,12 +10,16 @@
  * `/projects/:projectId/mutate` action) and the copy.
  *
  * Three settings, three declared change behaviours (ADR-026 §26.3):
- *   - **Area/Goal (organisation)** — an IMMEDIATE `SelectField`, server-backed and
+ *   - **Area/Goal (organisation)** — an IMMEDIATE `SelectField` (composed through
+ *     a self-naming `SettingsRow`, per DS-10b's row anatomy), server-backed and
  *     searchable via the SAME `/projects/parent-options` endpoint the create form
- *     uses (`useParentOptionsSearch`). Submits the existing `move` intent, which
- *     resolves to `SpineRepository.move` server-side — the client never asserts a
- *     parent's kind. `useImmediateSetting` gives optimistic apply + revert-on-
- *     failure for free.
+ *     uses (`useParentOptionsSearch`). The seed is the CURRENT parent only
+ *     (derived from the already-loaded overview, not a fetched catalogue) — the
+ *     Project record loader never fetches the whole Area/Goal catalogue just to
+ *     seed this picker; every OTHER eligible parent is discovered by searching.
+ *     Submits the existing `move` intent, which resolves to `SpineRepository.move`
+ *     server-side — the client never asserts a parent's kind. `useImmediateSetting`
+ *     gives optimistic apply + revert-on-failure for free.
  *   - **Workflow status** — an IMMEDIATE native `<select>` (Planned/Active/On
  *     hold), submitted via the existing `set_status` intent, with the SAME
  *     revert-on-failure coordinator.
@@ -61,8 +65,6 @@ import type { SelectOption } from "~/shared/forms/types";
 
 export interface ProjectSettingsTabProps {
   readonly overview: SerializedProjectOverview;
-  /** The seed Area/Goal parent options (value = entity id; description = kind). */
-  readonly parentOptions: readonly SelectOption[];
   /** Apply a workflow-status change (`set_status`). Reject to fail (reverts). */
   readonly onSetStatus: (
     status: ProjectWorkflowStatus,
@@ -94,14 +96,17 @@ function currentParent(overview: SerializedProjectOverview): {
 
 function OrganisationRow({
   overview,
-  parentOptions,
   onMove,
 }: {
   readonly overview: SerializedProjectOverview;
-  readonly parentOptions: readonly SelectOption[];
   readonly onMove: (parentId: string, signal: AbortSignal) => Promise<void>;
 }) {
   const parent = currentParent(overview);
+  // Seed with the CURRENT parent only — never the whole Area/Goal catalogue.
+  // Every other eligible parent is discovered by searching `/projects/parent-
+  // options?q=`; this keeps the Project record loader independent of catalogue
+  // size (it doesn't fetch Areas/Goals at all), while the current parent's
+  // label always resolves even before the user types anything.
   const seed: readonly SelectOption[] = parent
     ? [
         {
@@ -109,9 +114,8 @@ function OrganisationRow({
           label: parent.title,
           description: parent.kind === "goal" ? "Goal" : "Area",
         },
-        ...parentOptions.filter((option) => option.value !== parent.id),
       ]
-    : parentOptions;
+    : [];
   const search = useParentOptionsSearch(seed);
 
   const setting = useImmediateSetting<string>({
@@ -122,28 +126,32 @@ function OrganisationRow({
   });
 
   return (
-    <SelectField
-      label="Area or Goal"
-      help="Move this project under a different Area, or to advance a Goal."
-      placeholder="Search Areas and Goals"
-      required
-      disabled={setting.pending}
-      options={search.withSelected(setting.value)}
-      onSearch={search.onSearch}
-      loading={search.loading}
-      emptyMessage="No matching Areas or Goals"
-      value={setting.value}
-      onBlur={() => {}}
-      onChange={(next) => {
-        // A no-op reselection of the current parent applies neither a mutation
-        // nor a success toast — the server already treats it as unchanged, but
-        // skipping the round-trip here keeps the interaction calm (DS-10b §26.3
-        // "no-op" — no Activity churn either way).
-        if (next.length === 0 || next === setting.value) {
-          return;
-        }
-        setting.apply(next);
-      }}
+    <SettingsRow
+      control={
+        <SelectField
+          label="Area or Goal"
+          help="Move this project under a different Area, or to advance a Goal."
+          placeholder="Search Areas and Goals"
+          required
+          disabled={setting.pending}
+          options={search.withSelected(setting.value)}
+          onSearch={search.onSearch}
+          loading={search.loading}
+          emptyMessage="No matching Areas or Goals"
+          value={setting.value}
+          onBlur={() => {}}
+          onChange={(next) => {
+            // A no-op reselection of the current parent applies neither a
+            // mutation nor a success toast — the server already treats it as
+            // unchanged, but skipping the round-trip here keeps the interaction
+            // calm (DS-10b §26.3 "no-op" — no Activity churn either way).
+            if (next.length === 0 || next === setting.value) {
+              return;
+            }
+            setting.apply(next);
+          }}
+        />
+      }
     />
   );
 }
@@ -299,7 +307,6 @@ function RestoreGroup({
 
 export function ProjectSettingsTab({
   overview,
-  parentOptions,
   onSetStatus,
   onMove,
   onArchive,
@@ -348,11 +355,7 @@ export function ProjectSettingsTab({
               title="Organisation"
               description="Move this project under a different Area, or to advance a Goal."
             >
-              <OrganisationRow
-                overview={overview}
-                parentOptions={parentOptions}
-                onMove={onMove}
-              />
+              <OrganisationRow overview={overview} onMove={onMove} />
             </SettingsGroup>
             <SettingsGroup
               title="Workflow"
