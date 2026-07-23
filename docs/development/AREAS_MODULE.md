@@ -88,9 +88,15 @@ UNFINISHED counts. Both are corrected:
   ACTIVE subset (`isProjectHealthVisible`) through the existing batched, N+1-free
   `ProjectHealthRepository.listProjectHealthFacts`, chunked at its own 100-id
   bounded-page ceiling so an Area with more than 100 active Projects still reads
-  every one of them (never one health query per Project). The displayed card page
-  (`listAreaProjects`, still bounded at 50 for the UI) and the momentum boundary
-  are two independent reads; changing one never changes the other.
+  every one of them (never one health query per Project). Batches are read
+  SEQUENTIALLY, not concurrently, so total in-flight D1 work stays bounded to one
+  batch's own internal fan-out regardless of how many active Projects an Area has —
+  an Area with hundreds of active Projects issues more round trips, never unbounded
+  simultaneous D1 work. A visible active Project already present on the displayed
+  card page reuses the facts fetched for that page instead of being queried twice.
+  The displayed card page (`listAreaProjects`, still bounded at 50 for the UI) and
+  the momentum boundary are two independent reads; changing one never changes the
+  other.
 - **Unfinished, not total, drives every "is there active work" decision.** Goal and
   direct-Task counts are OPEN/unfinished versus completed, not raw totals — an
   Area containing only completed Goals, only completed direct Tasks, or a completed
@@ -103,13 +109,20 @@ UNFINISHED counts. Both are corrected:
 - **Only genuinely `active`-workflow Projects count as active momentum.** Planned
   and On-hold Projects are classified separately (`planned_projects`/`on_hold_projects`
   reason codes) and are never described as active momentum.
+- **Archived takes precedence over Completed when classifying a Project.** A
+  Project that is both completed and later archived is bucketed `archived` (never
+  `completed`), matching the same precedence the Area Project card presentation
+  (`projectStateLabel` in `area-view.ts`) already gives Archived over Completed.
 
 Revised precedence:
 
 1. Any visible at-risk active Project -> `needs_attention` ("Needs attention").
 2. Otherwise, any visible blocked active Project -> `needs_attention` ("Blocked work").
 3. Otherwise, any visible stale active Project -> `watch` ("Worth a look").
-4. Otherwise, On-hold Projects with no `active`-workflow Project -> `watch` ("Mostly paused").
+4. Otherwise, On-hold Projects with NO `active`-workflow Project, NO unfinished
+   direct Area Task and NO open Goal -> `watch` ("Mostly paused"). This guard is
+   deliberately the full "no genuinely active work" condition — an On-hold Project
+   must never suppress a genuinely unfinished direct Task or open Goal.
 5. Otherwise, one or more `active`-workflow Projects -> `steady` ("Momentum visible"),
    describing only the true active Project count.
 6. Otherwise, one or more unfinished direct Area Tasks -> `steady` ("Momentum visible"),
@@ -181,7 +194,11 @@ workflow.
   Tasks/Project Tasks; a lone open Goal; a lone unfinished direct Task; Planned-only;
   On-hold-only; active/at-risk/blocked/stale; precedence when they coexist;
   completed/archived Projects ignored even with warning facts; mixed active +
-  Planned + On-hold; no zero-count reason; deterministic injected clock).
+  Planned + On-hold; no zero-count reason; deterministic injected clock; an
+  On-hold Project never suppressing a genuinely unfinished direct Task or open
+  Goal; On-hold-only wording winning over Planned-only when both coexist with no
+  active work; and a Project that is both completed and archived classifying as
+  archived, matching card presentation.
 - **Workers/D1 integration** (`test/kernel/areas*.test.ts`): list/create/get/rename,
   roll-up accuracy across Goals, direct Projects, Goal-backed Projects, direct
   Tasks and Project Tasks, soft-delete/move effects, workspace isolation,
@@ -189,12 +206,15 @@ workflow.
   covers the corrected momentum boundary specifically: `getAreaMomentumFacts`
   returns every aligned Project (55+) while `listAreaProjects` stays bounded at 50;
   a deterministically-seeded at-risk Project placed past the first displayed page
-  still drives `needs_attention` at the route layer; direct-versus-Project Task
-  counts; completed/archived Projects excluded from active warnings; moved/
-  soft-deleted/cross-workspace descendants; wrong-kind/missing/cross-workspace Area
-  ids fail closed (empty facts, no throw); and a `countingDb`-instrumented test
-  proving `getAreaMomentumFacts` issues a fixed, small number of queries regardless
-  of aligned-Project count (no N+1).
+  still drives `needs_attention` at the route layer; a second deterministic route
+  test seeds 101 ACTIVE Projects with the at-risk one placed past BOTH the card
+  page and the health-facts repository's own 100-id batch ceiling, proving the
+  loader's own batching reaches it; direct-versus-Project Task counts; completed/
+  archived Projects excluded from active warnings; moved/soft-deleted/cross-
+  workspace descendants; wrong-kind/missing/cross-workspace Area ids fail closed
+  (empty facts, no throw); and a `countingDb`-instrumented test proving
+  `getAreaMomentumFacts` issues a fixed, small number of queries regardless of
+  aligned-Project count (no N+1).
 - **E2E** (`e2e/areas.spec.ts`): real navigation from app chrome, seeded hierarchy,
   New Area validation/create, landing on the canonical record, rename, Goals and
   Projects tabs, project navigation with Back/Forward, empty Area states, Activity,

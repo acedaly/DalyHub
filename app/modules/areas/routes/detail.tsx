@@ -50,11 +50,16 @@ const AREA_CHILD_PAGE_SIZE = 50;
 
 /**
  * `ProjectHealthRepository.listProjectHealthFacts` caps a single read at 100 ids
- * (`MAX_HEALTH_BATCH`) as a bounded-collection-page safety ceiling. The COMPLETE
- * momentum boundary must cover every aligned Project regardless of count, so this
- * chunks the (unbounded) aligned-Project id set into ≤100-id batches and calls the
- * SAME batched, N+1-free operation per batch — never a query per Project, and never
- * an arbitrary cap that would silently drop a Project from the aggregate.
+ * (`MAX_HEALTH_BATCH`) as a bounded-collection-page safety ceiling, and internally
+ * fans a batch out into ≤40-id chunks with a small number of concurrent queries
+ * per chunk. The COMPLETE momentum boundary must cover every aligned Project
+ * regardless of count, so this chunks the (unbounded) aligned-Project id set into
+ * ≤100-id batches and calls the SAME batched, N+1-free operation per batch — never
+ * a query per Project, and never an arbitrary cap that would silently drop a
+ * Project from the aggregate. Batches are read SEQUENTIALLY (not `Promise.all`)
+ * so total in-flight D1 concurrency stays bounded to one batch's own internal
+ * fan-out — an Area with hundreds of active Projects issues more ROUND TRIPS, not
+ * unbounded simultaneous D1 work.
  */
 const HEALTH_FACTS_BATCH_SIZE = 100;
 
@@ -69,17 +74,10 @@ async function collectProjectHealthFacts(
   ids: readonly string[],
   todayIso: string,
 ): Promise<Map<string, ProjectHealthFacts>> {
-  const batches: string[][] = [];
-  for (let i = 0; i < ids.length; i += HEALTH_FACTS_BATCH_SIZE) {
-    batches.push(ids.slice(i, i + HEALTH_FACTS_BATCH_SIZE));
-  }
-  const pages = await Promise.all(
-    batches.map((batch) =>
-      projectHealth.listProjectHealthFacts(batch, todayIso),
-    ),
-  );
   const merged = new Map<string, ProjectHealthFacts>();
-  for (const page of pages) {
+  for (let i = 0; i < ids.length; i += HEALTH_FACTS_BATCH_SIZE) {
+    const batch = ids.slice(i, i + HEALTH_FACTS_BATCH_SIZE);
+    const page = await projectHealth.listProjectHealthFacts(batch, todayIso);
     for (const [id, facts] of page) {
       merged.set(id, facts);
     }
@@ -150,15 +148,24 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   // The COMPLETE momentum boundary: every Project aligned to the Area, independent
   // of the card page above. Health is only ever needed (and only ever fetched) for
   // the visible active subset — Planned/On-hold/completed/archived Projects never
-  // create an active warning, so they never need a health read.
+  // create an active warning, so they never need a health read. A visible active
+  // Project that is ALSO on the displayed card page reuses the facts already
+  // fetched above instead of being queried a second time.
   const visibleActiveIds = momentumFacts.projects
     .filter((project) => isProjectHealthVisible(project))
     .map((project) => project.id);
-  const momentumFactsById = await collectProjectHealthFacts(
+  const idsNotAlreadyLoaded = visibleActiveIds.filter(
+    (id) => !displayedFactsById.has(id),
+  );
+  const additionalFactsById = await collectProjectHealthFacts(
     scope.projectHealth,
-    visibleActiveIds,
+    idsNotAlreadyLoaded,
     healthContext.todayIso,
   );
+  const momentumFactsById = new Map([
+    ...displayedFactsById,
+    ...additionalFactsById,
+  ]);
   const momentumProjects: AreaMomentumProjectFacts[] =
     momentumFacts.projects.map((project) => {
       if (!isProjectHealthVisible(project)) {

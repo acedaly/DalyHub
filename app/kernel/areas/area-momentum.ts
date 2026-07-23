@@ -20,7 +20,8 @@
  *   1. Any visible at-risk active Project      -> needs_attention
  *   2. Any visible blocked active Project      -> needs_attention
  *   3. Any visible stale active Project        -> watch
- *   4. On-hold Projects with no active Project -> watch (calm paused wording)
+ *   4. On-hold Projects with NO active Project, NO unfinished direct Area Task
+ *      and NO open Goal                        -> watch (calm paused wording)
  *   5. One or more active workflow Projects    -> steady
  *   6. One or more unfinished direct Area Tasks -> steady
  *   7. One or more open Goals (no Projects/Tasks) -> watch (honest, non-active wording)
@@ -122,14 +123,17 @@ function plural(count: number, singular: string, pluralNoun = `${singular}s`) {
 }
 
 /**
- * Classify a Project into exactly one bucket. Completion and archival take
+ * Classify a Project into exactly one bucket. Archival and completion both take
  * precedence over workflow status: a completed or archived Project is never
  * counted as active/planned/on-hold, matching the shared Project health
- * visibility rule (`isProjectHealthVisible`).
+ * visibility rule (`isProjectHealthVisible`). Archived is checked FIRST so a
+ * Project that is both completed and later archived is classified "archived" —
+ * consistent with Area Project card presentation (`projectStateLabel`), which
+ * also gives Archived precedence over Completed.
  */
 function bucketOf(project: AreaMomentumProjectFacts): ProjectBucket {
-  if (project.completedAt !== null) return "completed";
   if (project.archivedAt !== null) return "archived";
+  if (project.completedAt !== null) return "completed";
   return project.status;
 }
 
@@ -247,7 +251,12 @@ export function evaluateAreaMomentum(
     });
   }
 
-  if (activeProjects.length === 0 && onHoldProjects.length > 0) {
+  if (
+    activeProjects.length === 0 &&
+    unfinishedDirectTasks === 0 &&
+    openGoals === 0 &&
+    onHoldProjects.length > 0
+  ) {
     return result(context, {
       state: "watch",
       label: "Mostly paused",

@@ -148,6 +148,56 @@ describe("Area momentum", () => {
     expectNoZeroCountReason(momentum);
   });
 
+  it("never lets an On-hold Project suppress a genuinely unfinished direct Area Task", () => {
+    const momentum = evaluateAreaMomentum(
+      facts({
+        directTasks: { unfinishedTotal: 1, completedTotal: 0 },
+        projects: [project({ status: "on_hold" })],
+      }),
+      EVALUATED,
+    );
+    expect(momentum.state).toBe("steady");
+    expect(momentum.label).not.toBe("Mostly paused");
+    expect(momentum.reasons[0]).toMatchObject({
+      code: "unfinished_direct_tasks",
+      count: 1,
+    });
+    expectNoZeroCountReason(momentum);
+  });
+
+  it("never lets an On-hold Project suppress a genuine open Goal", () => {
+    const momentum = evaluateAreaMomentum(
+      facts({
+        goals: { openTotal: 1, completedTotal: 0 },
+        projects: [project({ status: "on_hold" })],
+      }),
+      EVALUATED,
+    );
+    expect(momentum.state).toBe("watch");
+    expect(momentum.label).not.toBe("Mostly paused");
+    expect(momentum.reasons[0]).toMatchObject({ code: "open_goals", count: 1 });
+    expectNoZeroCountReason(momentum);
+  });
+
+  it("prefers On-hold-only wording over Planned-only when both coexist with no active work", () => {
+    const momentum = evaluateAreaMomentum(
+      facts({
+        projects: [
+          project({ id: "p-hold", status: "on_hold" }),
+          project({ id: "p-planned", status: "planned" }),
+        ],
+      }),
+      EVALUATED,
+    );
+    expect(momentum.state).toBe("watch");
+    expect(momentum.label).toBe("Mostly paused");
+    expect(momentum.reasons[0]).toMatchObject({
+      code: "on_hold_projects",
+      count: 1,
+    });
+    expectNoZeroCountReason(momentum);
+  });
+
   it("reports one healthy active Project as steady momentum", () => {
     const momentum = evaluateAreaMomentum(
       facts({ projects: [project({ health: stubHealth() })] }),
@@ -261,6 +311,30 @@ describe("Area momentum", () => {
       "no_active_work",
       "archived_projects_ignored",
     ]);
+  });
+
+  it("classifies a Project that is both completed and archived as archived, matching card presentation", () => {
+    // Area Project cards give Archived precedence over Completed
+    // (`projectStateLabel` in area-view.ts); the momentum evaluator must agree.
+    const momentum = evaluateAreaMomentum(
+      facts({
+        projects: [
+          project({
+            completedAt: "2026-07-19T00:00:00.000Z",
+            archivedAt: "2026-07-21T00:00:00.000Z",
+          }),
+        ],
+      }),
+      EVALUATED,
+    );
+    expect(momentum.state).toBe("empty");
+    expect(momentum.reasons.map((r) => r.code)).toEqual([
+      "no_active_work",
+      "archived_projects_ignored",
+    ]);
+    expect(momentum.reasons.map((r) => r.code)).not.toContain(
+      "completed_projects_ignored",
+    );
   });
 
   it("prefers an active Project over mixed Planned and On-hold Projects", () => {

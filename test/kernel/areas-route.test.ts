@@ -229,6 +229,49 @@ describe("Area routes", () => {
     );
   });
 
+  it("Area momentum reports an at-risk Project beyond the 100-id health-facts batch boundary (101 active Projects)", async () => {
+    const s = spine(WS);
+    const settings = makeProjectSettingsRepository(makeContext(WS));
+    const tasks = makeTaskRepository(makeContext(WS));
+    const area = await s.createArea({ title: "Huge Area" });
+
+    // 101 active direct Projects — one more than both the 50-item bounded card
+    // page AND `ProjectHealthRepository.listProjectHealthFacts`'s own 100-id
+    // single-read ceiling, so the loader's health-facts batching must issue a
+    // SECOND batch to reach every one of them.
+    const projectIds: string[] = [];
+    for (let i = 0; i < 101; i++) {
+      const project = await s.createProject({
+        title: `Project ${i}`,
+        parent: { kind: "area", id: area.id },
+      });
+      await settings.setStatus(project.id, "active");
+      projectIds.push(project.id);
+    }
+    // The LAST-created (101st) Project has the highest id, so it deterministically
+    // lands in the SECOND 100-id health-facts batch.
+    const beyondBatchOneId = projectIds[projectIds.length - 1]!;
+    const overdueTask = await s.createTask({
+      title: "Overdue",
+      parent: { kind: "project", id: beyondBatchOneId },
+    });
+    await tasks.updateTask(overdueTask.id, { dueDate: "2000-01-01" });
+
+    const detail = await runDetail(area.id);
+    expect("overview" in detail).toBe(true);
+    if (!("overview" in detail)) return;
+
+    // The DISPLAYED card page stays bounded and does NOT include the Project.
+    expect(detail.projects.length).toBeLessThanOrEqual(50);
+    expect(detail.projects.some((p) => p.id === beyondBatchOneId)).toBe(false);
+
+    // The COMPLETE momentum aggregate still reaches it across the batch boundary.
+    expect(detail.momentum.state).toBe("needs_attention");
+    expect(detail.momentum.reasons.map((r) => r.code)).toContain(
+      "at_risk_projects",
+    );
+  }, 60_000);
+
   it("Area momentum ignores a completed/archived Project's health facts and reflects exact direct-task counts", async () => {
     const s = spine(WS);
     const settings = makeProjectSettingsRepository(makeContext(WS));
