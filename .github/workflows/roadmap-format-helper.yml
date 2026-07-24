@@ -6,13 +6,15 @@ on:
       - feat/production-roadmap-project
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   format:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: feat/production-roadmap-project
       - name: Enable Corepack
         run: corepack enable
       - uses: actions/setup-node@v4
@@ -30,9 +32,20 @@ jobs:
             scripts/roadmap-production-worker.ts \
             test/kernel/roadmap-production.test.ts \
             test/unit/roadmap/roadmap-production-cli.test.mjs
-          git diff --binary > roadmap-format.patch
-      - uses: actions/upload-artifact@v4
-        with:
-          name: roadmap-format-patch
-          path: roadmap-format.patch
-          if-no-files-found: error
+      - name: Commit formatted files
+        run: |
+          if git diff --quiet; then
+            echo "No formatting changes required."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            docs/development/PRODUCTION_ROADMAP.md \
+            package.json \
+            scripts/roadmap-production.mjs \
+            scripts/roadmap-production-worker.ts \
+            test/kernel/roadmap-production.test.ts \
+            test/unit/roadmap/roadmap-production-cli.test.mjs
+          git commit -m "style: format production roadmap runner"
+          git push origin HEAD:feat/production-roadmap-project
