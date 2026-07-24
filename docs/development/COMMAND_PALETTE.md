@@ -112,10 +112,10 @@ are transient — supplied by the current surface, Drawer or selection:
 useRegisterContextualActions(
   useMemo<AppAction[]>(
     () => [
-      { id: "today.action.focus_capture", title: "Focus Quick Capture",
-        kind: "run", run: () => { focusCapture(); return { ok: true }; } },
+      { id: "today.cmd.select_all", title: "Select all open tasks",
+        kind: "run", run: () => { selectAll(); return { ok: true }; } },
     ],
-    [focusCapture],
+    [selectAll],
   ),
 );
 ```
@@ -127,6 +127,21 @@ action may close over a record the current UI knows — but the client context i
 never treated as server authority; a persistent mutation still calls an authorised
 server action. The shared infrastructure never parses an opaque Drawer key: the
 owning surface (e.g. Today) decides when a `task:<id>` action is relevant.
+
+**A `run` action must not depend on focusing something in the background.**
+Activating any command leaves the palette open unless the outcome carries a
+`target` (navigation always closes it — see "Executing a command" above); a
+`run` action with no target executes while the palette is still the modal top,
+so everything behind it — including the surface that registered the action —
+is `inert` and unfocusable. PX-03 hit this directly: Today used to register
+`today.action.focus_capture` (a `run` action calling `captureRef.current
+?.focus()`) ALONGSIDE the module's own registered NAVIGATE command with the
+SAME title (`today.focus_quick_capture`, always in the catalogue, on or off
+Today) — a redundant, silently-broken duplicate the moment both existed in the
+palette at once. If a contextual action's job is "move focus somewhere on the
+page," give it a `target` (so it navigates and closes) rather than `run`, or —
+if a registered command already reaches the same place — don't register a
+contextual duplicate at all.
 
 The registration re-runs whenever the actions array reference changes, so the
 registry always holds the latest closures (`target`/`run`) — a surface that

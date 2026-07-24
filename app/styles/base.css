@@ -137,6 +137,34 @@ body {
   margin: var(--dh-space-8) 0;
 }
 
+/* -------------------------------------------------------------------------- */
+/* PX-03 — the "Coming Soon" module-placeholder section.                      */
+/* -------------------------------------------------------------------------- */
+
+.dh-coming-soon {
+  margin-top: var(--dh-space-6);
+  padding-top: var(--dh-space-6);
+  border-top: var(--dh-border-width-thin) solid var(--dh-color-divider);
+  max-width: var(--dh-width-narrow);
+}
+
+.dh-coming-soon__title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--dh-space-2);
+  font-size: var(--dh-font-size-sm);
+  font-weight: var(--dh-font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--dh-letter-spacing-wider);
+  color: var(--dh-color-text-secondary);
+  margin: 0 0 var(--dh-space-3);
+}
+
+.dh-coming-soon__label {
+  font-weight: var(--dh-font-weight-medium);
+  margin: 0 0 var(--dh-space-2);
+}
+
 pre {
   overflow-x: auto;
   padding: var(--dh-space-4);

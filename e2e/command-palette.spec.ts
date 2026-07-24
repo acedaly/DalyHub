@@ -81,10 +81,22 @@ test.describe("DS-09 Command Palette — desktop", () => {
   test("focuses Today Quick Capture via the Focus Quick Capture command", async ({
     page,
   }) => {
+    // PX-03 regression: `/` now redirects to `/today`, so Today is already
+    // mounted by the time the palette opens here (previously it wasn't — the
+    // old Home page mounted no Today command at all). Today used to ALSO
+    // register a contextual run action under the exact same visible title,
+    // which — activated from inside the still-open, background-`inert`
+    // palette — silently failed to focus anything (see
+    // docs/development/COMMAND_PALETTE.md "Contextual actions"). That
+    // duplicate is removed (TodayDashboard.tsx); this asserts by the
+    // user-visible title that there is now exactly ONE "Focus Quick Capture"
+    // result, and that activating it genuinely focuses Quick Capture.
     await page.goto("/");
     const input = await openPalette(page);
     await input.fill("Focus Quick Capture");
-    await expect(option(page, /Focus Quick Capture/).first()).toBeVisible();
+    const matches = option(page, /^Focus Quick Capture/);
+    await expect(matches).toHaveCount(1);
+    await expect(matches.first()).toBeVisible();
     await input.press("Enter");
     await expect(page).toHaveURL(/\/today/);
     await expect(

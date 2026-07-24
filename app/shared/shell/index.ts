@@ -24,6 +24,10 @@ export { ThemeControl, THEME_ACTION_PATH } from "./ThemeControl";
 export { MobileNav, MOBILE_NAV_ID } from "./MobileNav";
 export { ModulePlaceholder } from "./ModulePlaceholder";
 export {
+  ModuleComingSoon,
+  type ModuleComingSoonProps,
+} from "./ModuleComingSoon";
+export {
   THEME_PREFERENCES,
   DEFAULT_THEME,
   THEME_COOKIE_NAME,

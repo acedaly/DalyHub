@@ -18,12 +18,16 @@ test.describe("PX-02 authenticated app frame (development auth)", () => {
   }) => {
     await page.goto("/");
 
+    // PX-03: `/` redirects to `/today`, the calm daily home — no more standalone
+    // Home landing page.
+    await expect(page).toHaveURL(/\/today$/);
+
     // The sidebar frame appears with the workspace brand (the banner landmark).
     const banner = page.getByRole("banner");
     await expect(banner).toBeVisible();
     await expect(banner.getByText("DalyHub")).toBeVisible();
     await expect(
-      page.getByRole("heading", { level: 1, name: "Home" }),
+      page.getByRole("heading", { level: 1, name: "Today" }),
     ).toBeVisible();
 
     // Registry-driven sidebar navigation reaches every module placeholder.

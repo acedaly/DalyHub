@@ -67,6 +67,16 @@ const PRODUCT_ROUTES = [
   "/projects?state=archived",
   "/projects/pr-archived-demo",
   "/projects/pr-archived-demo?tab=settings",
+  // PX-03 — the navigation-shell Coming Soon placeholder routes.
+  "/notes",
+  "/diary",
+  "/meetings",
+  "/people",
+  "/assets",
+  "/reviews",
+  "/ai",
+  "/settings",
+  "/help",
 ] as const;
 
 test.describe("automated accessibility — resting surfaces (light)", () => {

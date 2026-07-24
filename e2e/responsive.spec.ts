@@ -65,6 +65,17 @@ const PRODUCT_ROUTES = [
   "/projects/pr-settings?tab=settings",
   "/projects?state=archived",
   "/projects/pr-archived-demo",
+  // PX-03 — the navigation-shell Coming Soon placeholder routes (Search's own
+  // sidebar affordance, /goals?tab= etc. remain covered by their own suites).
+  "/notes",
+  "/diary",
+  "/meetings",
+  "/people",
+  "/assets",
+  "/reviews",
+  "/ai",
+  "/settings",
+  "/help",
 ] as const;
 
 test.describe("responsive — no horizontal overflow across the breakpoint matrix", () => {
