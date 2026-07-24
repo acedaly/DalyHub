@@ -1,0 +1,38 @@
+name: Roadmap format helper
+
+on:
+  push:
+    branches:
+      - feat/production-roadmap-project
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enable Corepack
+        run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Format roadmap files
+        run: |
+          pnpm exec prettier --write \
+            docs/development/PRODUCTION_ROADMAP.md \
+            package.json \
+            scripts/roadmap-production.mjs \
+            scripts/roadmap-production-worker.ts \
+            test/kernel/roadmap-production.test.ts \
+            test/unit/roadmap/roadmap-production-cli.test.mjs
+          git diff --binary > roadmap-format.patch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: roadmap-format-patch
+          path: roadmap-format.patch
+          if-no-files-found: error
