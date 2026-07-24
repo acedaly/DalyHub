@@ -1,5 +1,5 @@
 /**
- * PX-02 shell — registry-driven primary navigation, as icon + label rows.
+ * PX-02/PX-03 shell — registry-driven primary navigation, as icon + label rows.
  *
  * Renders the navigation model the shell loader derived from the registry, one row
  * per module. Each row is `icon + label` — never text-only (DESIGN_SYSTEM.md →
@@ -12,8 +12,18 @@
  * active state is conveyed SEMANTICALLY (reinforced by weight + a tint, never colour
  * alone — AGENTS.md §15). The row leaves room for a future quiet count and a future
  * collapsed icon-rail without a redesign.
+ *
+ * PX-03 — group dividers. `NavigationItem.group` (already derived from
+ * `meta.navGroup`, FND-09) was carried through the model but never rendered. A
+ * plain, decorative `<hr>` divider is inserted whenever consecutive items' `group`
+ * differs — a single flat list stays a single flat list when no module declares a
+ * group (today's behaviour, unchanged), so this is additive, not a redesign. The
+ * divider carries no text: the recommended module grouping (Today/Areas/Goals/
+ * Projects/Tasks · Notes/Diary/Meetings/People/Assets · Reviews/AI · Settings/Help)
+ * is conveyed by rhythm alone, matching the roadmap's sidebar sketch.
  */
 
+import { Fragment } from "react";
 import { NavLink } from "react-router";
 
 import { EntityIcon, isEntityType } from "~/shared/entity";
@@ -37,27 +47,40 @@ export function PrimaryNavigation({
   return (
     <nav id={id} className="dh-nav" aria-label="Primary">
       <ul className="dh-nav__list">
-        {items.map((item) => (
-          <li key={item.id} className="dh-nav__item">
-            <NavLink
-              to={item.href}
-              className={({ isActive }) =>
-                isActive ? "dh-nav__link dh-nav__link--active" : "dh-nav__link"
-              }
-              onClick={onNavigate}
-              end
-            >
-              <span className="dh-nav__icon">
-                {isEntityType(item.entityType) ? (
-                  <EntityIcon type={item.entityType} />
-                ) : (
-                  <span className="dh-nav__icon-dot" aria-hidden="true" />
-                )}
-              </span>
-              <span className="dh-nav__label">{item.label}</span>
-            </NavLink>
-          </li>
-        ))}
+        {items.map((item, index) => {
+          const previous = items[index - 1];
+          const startsNewGroup = index > 0 && previous?.group !== item.group;
+          return (
+            <Fragment key={item.id}>
+              {startsNewGroup ? (
+                <li className="dh-nav__divider" aria-hidden="true">
+                  <hr />
+                </li>
+              ) : null}
+              <li className="dh-nav__item">
+                <NavLink
+                  to={item.href}
+                  className={({ isActive }) =>
+                    isActive
+                      ? "dh-nav__link dh-nav__link--active"
+                      : "dh-nav__link"
+                  }
+                  onClick={onNavigate}
+                  end
+                >
+                  <span className="dh-nav__icon">
+                    {isEntityType(item.entityType) ? (
+                      <EntityIcon type={item.entityType} />
+                    ) : (
+                      <span className="dh-nav__icon-dot" aria-hidden="true" />
+                    )}
+                  </span>
+                  <span className="dh-nav__label">{item.label}</span>
+                </NavLink>
+              </li>
+            </Fragment>
+          );
+        })}
       </ul>
     </nav>
   );

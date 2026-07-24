@@ -81,9 +81,17 @@ test.describe("DS-09 Command Palette — desktop", () => {
   test("focuses Today Quick Capture via the Focus Quick Capture command", async ({
     page,
   }) => {
+    // PX-03: `/` now redirects to `/today`, so Today is already mounted (and its
+    // OWN same-titled "Focus Quick Capture" contextual run action is already
+    // registered) by the time the palette opens — previously this test's search
+    // matched only the registered navigation command, because Today didn't exist
+    // yet on the Home page it started from. "jot" is a keyword unique to the
+    // registered navigation command (`today.focus_quick_capture`, see
+    // `app/modules/today/commands.ts`), so it disambiguates deterministically
+    // regardless of result ranking, without depending on option order.
     await page.goto("/");
     const input = await openPalette(page);
-    await input.fill("Focus Quick Capture");
+    await input.fill("jot");
     await expect(option(page, /Focus Quick Capture/).first()).toBeVisible();
     await input.press("Enter");
     await expect(page).toHaveURL(/\/today/);

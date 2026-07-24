@@ -82,32 +82,68 @@ describe("module discovery", () => {
     // Importing the real discovery module forces Vite (via vitest) to transform
     // the SAME `import.meta.glob("./*/module.ts")` the production build uses,
     // proving the mechanism works under the actual toolchain. FND-07 adds the
-    // four spine module manifests and TODAY-01 adds the Today view module, so it
-    // now resolves to exactly those five — discovered automatically, with NO
-    // central module array to edit.
+    // four spine module manifests, TODAY-01 adds the Today view module, and
+    // PX-03 adds nine navigation-shell placeholder modules (Notes, Diary,
+    // Meetings, People, Assets, Reviews, AI, Settings, Help) — so it now resolves
+    // to exactly those fourteen, discovered automatically, with NO central
+    // module array to edit.
     it("transforms the production glob and discovers every module manifest", () => {
       expect(
         discoverModuleDefinitions()
           .map((d) => d.id)
           .sort(),
-      ).toEqual(["areas", "goals", "projects", "tasks", "today"]);
+      ).toEqual([
+        "ai",
+        "areas",
+        "assets",
+        "diary",
+        "goals",
+        "help",
+        "meetings",
+        "notes",
+        "people",
+        "projects",
+        "reviews",
+        "settings",
+        "tasks",
+        "today",
+      ]);
     });
 
     it("assembles a valid registry with the spine capability metadata", () => {
       const registry = discoverModuleRegistry();
-      // Today (order 5) sorts ahead of the four spine modules (order 10–40).
+      // Today (order 5) sorts ahead of the four spine modules (order 10–40),
+      // which sort ahead of PX-03's placeholder modules (order 100–310, grouped
+      // capture/insight/system as declared in their manifests).
       expect(registry.listModules().map((m) => m.id)).toEqual([
         "today",
         "areas",
         "goals",
         "projects",
         "tasks",
+        "notes",
+        "diary",
+        "meetings",
+        "people",
+        "assets",
+        "reviews",
+        "ai",
+        "settings",
+        "help",
       ]);
       // Entity types are owned by exactly one module each.
       expect(registry.getEntityType("area")?.moduleId).toBe("areas");
       expect(registry.getEntityType("goal")?.moduleId).toBe("goals");
       expect(registry.getEntityType("project")?.moduleId).toBe("projects");
       expect(registry.getEntityType("task")?.moduleId).toBe("tasks");
+      // PX-03's placeholder modules pre-register their future entity types too
+      // (AI/Settings/Help declare none, like Today — see their manifests).
+      expect(registry.getEntityType("note")?.moduleId).toBe("notes");
+      expect(registry.getEntityType("diary")?.moduleId).toBe("diary");
+      expect(registry.getEntityType("meeting")?.moduleId).toBe("meetings");
+      expect(registry.getEntityType("person")?.moduleId).toBe("people");
+      expect(registry.getEntityType("asset")?.moduleId).toBe("assets");
+      expect(registry.getEntityType("review")?.moduleId).toBe("reviews");
       // Structural link + completion activity metadata is registered.
       expect(
         registry.getEntityLinkType("task.belongs_to_project")?.moduleId,
@@ -115,9 +151,10 @@ describe("module discovery", () => {
       expect(registry.getActivityType("project.completed")?.moduleId).toBe(
         "projects",
       );
-      // FND-09 adds one navigable placeholder route per spine module, composed
-      // automatically from the manifests (no central route list). Settings remain
-      // out of scope; DS-09 adds Today's two navigation commands.
+      // FND-09 adds one navigable placeholder route per spine module, and PX-03
+      // adds one per navigation-shell module, all composed automatically from
+      // the manifests (no central route list). DS-09 adds Today's two
+      // navigation commands.
       expect(
         registry
           .listRoutes()
@@ -233,6 +270,29 @@ describe("module discovery", () => {
           moduleId: "tasks",
           file: "routes/task-waiting-targets.tsx",
         },
+        // PX-03 — one navigable Coming Soon placeholder route per shell module,
+        // in module-registration order.
+        { id: "notes.index", moduleId: "notes", file: "routes/index.tsx" },
+        { id: "diary.index", moduleId: "diary", file: "routes/index.tsx" },
+        {
+          id: "meetings.index",
+          moduleId: "meetings",
+          file: "routes/index.tsx",
+        },
+        { id: "people.index", moduleId: "people", file: "routes/index.tsx" },
+        { id: "assets.index", moduleId: "assets", file: "routes/index.tsx" },
+        {
+          id: "reviews.index",
+          moduleId: "reviews",
+          file: "routes/index.tsx",
+        },
+        { id: "ai.index", moduleId: "ai", file: "routes/index.tsx" },
+        {
+          id: "settings.index",
+          moduleId: "settings",
+          file: "routes/index.tsx",
+        },
+        { id: "help.index", moduleId: "help", file: "routes/index.tsx" },
       ]);
       // DS-09: Today registers registry-discovered navigation commands; TODAY-03
       // adds "Open Waiting".

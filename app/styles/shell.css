@@ -196,6 +196,18 @@
   white-space: nowrap;
 }
 
+/* PX-03 — a decorative divider between navGroup transitions (Today/spine ·
+ * capture modules · insight modules · system pages). Rhythm only, no label. */
+.dh-nav__divider {
+  margin: var(--dh-space-2) 0;
+}
+
+.dh-nav__divider hr {
+  border: none;
+  border-top: var(--dh-border-width-thin) solid var(--dh-color-divider);
+  margin: 0;
+}
+
 .dh-sidebar__spacer {
   flex: 1;
   min-height: var(--dh-space-4);
