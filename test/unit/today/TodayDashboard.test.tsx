@@ -372,11 +372,30 @@ function renderTodayWithCommands(entries: readonly string[] = ["/today"]) {
 }
 
 describe("TODAY-04 command integration", () => {
-  it("registers a Focus Quick Capture contextual action on Today", () => {
+  // PX-03 regression guard: "Focus Quick Capture" must have exactly ONE
+  // authoritative command — the module-registered NAVIGATE command
+  // (`today.focus_quick_capture`, always in the catalogue). Today must NOT
+  // additionally register it as a contextual `run` action: that action would
+  // execute while the Command Palette is still open (the background `inert`),
+  // so it could never actually focus the field, and it produced a second,
+  // dead, identically-titled palette entry. See the note above
+  // `contextualActions` in TodayDashboard.tsx.
+  it("does not register a duplicate contextual Focus Quick Capture action", () => {
     renderTodayWithCommands();
     expect(
       observedContextual.some((a) => a.id === "today.action.focus_capture"),
-    ).toBe(true);
+    ).toBe(false);
+    expect(
+      observedContextual.some((a) => a.title === "Focus Quick Capture"),
+    ).toBe(false);
+  });
+
+  it("the Quick capture pane-header button focuses the field directly (no palette involved)", () => {
+    renderTodayWithCommands();
+    fireEvent.click(screen.getByRole("button", { name: "Quick capture" }));
+    expect(
+      screen.getByPlaceholderText("What needs your attention?"),
+    ).toHaveFocus();
   });
 
   it("exposes planning commands with shortcuts for the focused task (TODAY-05)", () => {

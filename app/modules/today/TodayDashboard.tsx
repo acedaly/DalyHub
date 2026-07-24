@@ -480,20 +480,22 @@ export function TodayDashboard({
     setSearchParams(next, { replace: true, preventScrollReset: true });
   }, [searchParams, setSearchParams, focusCapture]);
 
-  const focusCaptureAction = useMemo<AppAction>(
-    () => ({
-      id: "today.action.focus_capture",
-      title: "Focus Quick Capture",
-      subtitle: "Jump to the capture field on Today",
-      keywords: ["capture", "quick", "add", "new", "inbox"],
-      kind: "run",
-      run: () => {
-        focusCapture();
-        return { ok: true };
-      },
-    }),
-    [focusCapture],
-  );
+  // PX-03: "Focus Quick Capture" is NOT also registered as a contextual `run`
+  // action here (it was, until PX-03 made `/` land on `/today` and exposed the
+  // bug this note explains). The module's registered NAVIGATE command
+  // (`today.focus_quick_capture`, `app/modules/today/commands.ts`) is global —
+  // always present in the Command Palette catalogue, on or off Today — and is
+  // the ONE authoritative way to reach Quick Capture from the palette: it
+  // navigates to `TODAY_CAPTURE_PATH`, which closes the palette (restoring the
+  // background from `inert`) before the effect above focuses the field. A
+  // contextual `run` action, by contrast, executes while the palette is still
+  // open and modal — the background (including this field) is `inert`, so
+  // `captureRef.current?.focus()` would silently no-op, and having BOTH also
+  // meant two identically-titled palette entries, one of them dead. The plain
+  // "Quick capture" button below calls `focusCapture()` directly — no palette
+  // involved, so no `inert` background and no duplicate registration needed.
+  // See `docs/development/COMMAND_PALETTE.md` "Contextual actions" for the
+  // general rule this establishes.
 
   const activateAction = useCallback((action: AppAction) => {
     if (action.kind === "run") {
@@ -602,9 +604,8 @@ export function TodayDashboard({
         })
       : [];
 
-    return [focusCaptureAction, ...globals, ...taskCommands];
+    return [...globals, ...taskCommands];
   }, [
-    focusCaptureAction,
     planning,
     rovingOrder,
     selected,
@@ -844,7 +845,7 @@ export function TodayDashboard({
         <button
           type="button"
           className="dh-today__primary"
-          onClick={() => activateAction(focusCaptureAction)}
+          onClick={focusCapture}
         >
           Quick capture
         </button>
