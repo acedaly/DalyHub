@@ -137,12 +137,16 @@ jobs:
         # requires again at `vite preview` time. It has to travel with the
         # build/ output, or the Playwright jobs' production-mode preview
         # server fails to start with no build/ output to reuse it against.
+        # include-hidden-files is required: upload-artifact excludes dotfiles/
+        # dot-directories by default, which would otherwise silently drop the
+        # whole .wrangler/ path from the artifact.
         uses: actions/upload-artifact@v4
         with:
           name: production-build
           path: |
             build/
             .wrangler/deploy/
+          include-hidden-files: true
           retention-days: 1
           if-no-files-found: error
 
